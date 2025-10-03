@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model comentarios {
+  id                BigInt        @id @default(autoincrement())
+  conteudo          String
+  foi_aprovado      Boolean       @default(true)
+  criado_em         DateTime      @default(now())
+  atualizado_em     DateTime      @updatedAt
+  autor_id          BigInt
+  prompt_id         BigInt?
+  postagem_id       BigInt?
+  comentario_pai_id BigInt?
+  usuarios          usuarios      @relation(fields: [autor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  comentarios       comentarios?  @relation("comentariosTocomentarios", fields: [comentario_pai_id], references: [id], onUpdate: NoAction)
+  other_comentarios comentarios[] @relation("comentariosTocomentarios")
+  postagens         postagens?    @relation(fields: [postagem_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prompts           prompts?      @relation(fields: [prompt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  curtidas          curtidas[]
+
+  @@index([autor_id], map: "idx_comentarios_autor_id")
+  @@index([comentario_pai_id], map: "idx_comentarios_comentario_pai_id")
+  @@index([postagem_id], map: "idx_comentarios_postagem_id")
+  @@index([prompt_id], map: "idx_comentarios_prompt_id")
+}
+
+model curtidas {
+  id            BigInt       @id @default(autoincrement())
+  criado_em     DateTime     @default(now())
+  usuario_id    BigInt
+  prompt_id     BigInt?
+  comentario_id BigInt?
+  postagem_id   BigInt?
+  comentarios   comentarios? @relation(fields: [comentario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  postagens     postagens?   @relation(fields: [postagem_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prompts       prompts?     @relation(fields: [prompt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  usuarios      usuarios     @relation(fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([usuario_id, comentario_id])
+  @@unique([usuario_id, postagem_id])
+  @@unique([usuario_id, prompt_id])
+  @@index([comentario_id], map: "idx_curtidas_comentario_id")
+  @@index([postagem_id], map: "idx_curtidas_postagem_id")
+  @@index([prompt_id], map: "idx_curtidas_prompt_id")
+  @@index([usuario_id], map: "idx_curtidas_usuario_id")
+}
+
+model discussoes {
+  id             BigInt      @id @default(autoincrement())
+  titulo         String      @db.VarChar(255)
+  descricao      String?
+  categoria      String      @db.VarChar(255)
+  esta_fixado    Boolean     @default(false)
+  esta_bloqueado Boolean     @default(false)
+  visualizacoes  Int         @default(0)
+  criado_em      DateTime    @default(now())
+  atualizado_em  DateTime    @updatedAt
+  autor_id       BigInt
+  usuarios       usuarios    @relation(fields: [autor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  postagens      postagens[]
+
+  @@index([autor_id], map: "idx_discussoes_autor_id")
+  @@index([categoria], map: "idx_discussoes_categoria")
+}
+
+model especialidades {
+  id                     BigInt                   @id @default(autoincrement())
+  nome                   String                   @unique @db.VarChar(255)
+  descricao              String?
+  icone                  String?                  @db.VarChar(255)
+  cor                    String?                  @db.VarChar(255)
+  prompts                prompts[]
+  usuario_especialidades usuario_especialidades[]
+}
+
+model postagens {
+  id            BigInt        @id @default(autoincrement())
+  conteudo      String
+  foi_aprovado  Boolean       @default(true)
+  criado_em     DateTime      @default(now())
+  atualizado_em DateTime      @updatedAt
+  autor_id      BigInt
+  discussao_id  BigInt
+  comentarios   comentarios[]
+  curtidas      curtidas[]
+  usuarios      usuarios      @relation(fields: [autor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  discussoes    discussoes    @relation(fields: [discussao_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([autor_id], map: "idx_postagens_autor_id")
+  @@index([discussao_id], map: "idx_postagens_discussao_id")
+}
+
+model prompts {
+  id               BigInt          @id @default(autoincrement())
+  titulo           String          @db.VarChar(255)
+  descricao        String
+  conteudo         String
+  categoria        String          @db.VarChar(255)
+  tags             String[]
+  e_publico        Boolean         @default(true)
+  foi_aprovado     Boolean         @default(false)
+  e_destaque       Boolean         @default(false)
+  visualizacoes    Int             @default(0)
+  criado_em        DateTime        @default(now())
+  atualizado_em    DateTime        @updatedAt
+  autor_id         BigInt
+  especialidade_id BigInt?
+  comentarios      comentarios[]
+  curtidas         curtidas[]
+  usuarios         usuarios        @relation(fields: [autor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  especialidades   especialidades? @relation(fields: [especialidade_id], references: [id], onUpdate: NoAction)
+
+  @@index([autor_id], map: "idx_prompts_autor_id")
+  @@index([categoria], map: "idx_prompts_categoria")
+  @@index([especialidade_id], map: "idx_prompts_especialidade_id")
+}
+
+model usuario_especialidades {
+  id               BigInt         @id @default(autoincrement())
+  usuario_id       BigInt
+  especialidade_id BigInt
+  especialidades   especialidades @relation(fields: [especialidade_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  usuarios         usuarios       @relation(fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([usuario_id, especialidade_id])
+}
+
+model usuarios {
+  id                     BigInt                   @id @default(autoincrement())
+  email                  String                   @unique @db.VarChar(255)
+  nome                   String                   @db.VarChar(255)
+  senha                  String                   @db.VarChar(255)
+  departamento           String?                  @db.VarChar(255)
+  cargo                  String?                  @db.VarChar(255)
+  matricula              String?                  @unique @db.VarChar(255)
+  telefone               String?                  @db.VarChar(255)
+  localizacao            String?                  @db.VarChar(255)
+  biografia              String?
+  avatar                 String?                  @db.VarChar(255)
+  esta_ativo             Boolean                  @default(true)
+  e_admin                Boolean                  @default(false)
+  e_moderador            Boolean                  @default(false)
+  data_entrada           DateTime                 @default(now())
+  ultimo_login           DateTime?
+  comentarios            comentarios[]
+  curtidas               curtidas[]
+  discussoes             discussoes[]
+  postagens              postagens[]
+  prompts                prompts[]
+  usuario_especialidades usuario_especialidades[]
+}
