@@ -17,17 +17,17 @@ model comentarios {
   prompt_id         BigInt?
   postagem_id       BigInt?
   comentario_pai_id BigInt?
-  usuarios          usuarios      @relation(fields: [autor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  comentarios       comentarios?  @relation("comentariosTocomentarios", fields: [comentario_pai_id], references: [id], onUpdate: NoAction)
-  other_comentarios comentarios[] @relation("comentariosTocomentarios")
-  postagens         postagens?    @relation(fields: [postagem_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  prompts           prompts?      @relation(fields: [prompt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  autor             usuarios      @relation(fields: [autor_id], references: [id], onDelete: Cascade)
+  pai               comentarios?  @relation("RespostasComentario", fields: [comentario_pai_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  respostas         comentarios[] @relation("RespostasComentario")
+  postagem          postagens?    @relation(fields: [postagem_id], references: [id], onDelete: Cascade)
+  prompt            prompts?      @relation(fields: [prompt_id], references: [id], onDelete: Cascade)
   curtidas          curtidas[]
 
-  @@index([autor_id], map: "idx_comentarios_autor_id")
-  @@index([comentario_pai_id], map: "idx_comentarios_comentario_pai_id")
-  @@index([postagem_id], map: "idx_comentarios_postagem_id")
-  @@index([prompt_id], map: "idx_comentarios_prompt_id")
+  @@index([autor_id])
+  @@index([comentario_pai_id])
+  @@index([postagem_id])
+  @@index([prompt_id])
 }
 
 model curtidas {
@@ -37,18 +37,18 @@ model curtidas {
   prompt_id     BigInt?
   comentario_id BigInt?
   postagem_id   BigInt?
-  comentarios   comentarios? @relation(fields: [comentario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  postagens     postagens?   @relation(fields: [postagem_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  prompts       prompts?     @relation(fields: [prompt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  usuarios      usuarios     @relation(fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  comentario    comentarios? @relation(fields: [comentario_id], references: [id], onDelete: Cascade)
+  postagem      postagens?   @relation(fields: [postagem_id], references: [id], onDelete: Cascade)
+  prompt        prompts?     @relation(fields: [prompt_id], references: [id], onDelete: Cascade)
+  usuario       usuarios     @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
 
   @@unique([usuario_id, comentario_id])
   @@unique([usuario_id, postagem_id])
   @@unique([usuario_id, prompt_id])
-  @@index([comentario_id], map: "idx_curtidas_comentario_id")
-  @@index([postagem_id], map: "idx_curtidas_postagem_id")
-  @@index([prompt_id], map: "idx_curtidas_prompt_id")
-  @@index([usuario_id], map: "idx_curtidas_usuario_id")
+  @@index([comentario_id])
+  @@index([postagem_id])
+  @@index([prompt_id])
+  @@index([usuario_id])
 }
 
 model discussoes {
@@ -62,11 +62,12 @@ model discussoes {
   criado_em      DateTime    @default(now())
   atualizado_em  DateTime    @updatedAt
   autor_id       BigInt
-  usuarios       usuarios    @relation(fields: [autor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  e_aberta       Boolean     @default(true)
+  autor          usuarios    @relation(fields: [autor_id], references: [id], onDelete: Cascade)
   postagens      postagens[]
 
-  @@index([autor_id], map: "idx_discussoes_autor_id")
-  @@index([categoria], map: "idx_discussoes_categoria")
+  @@index([autor_id])
+  @@index([categoria])
 }
 
 model especialidades {
@@ -89,11 +90,11 @@ model postagens {
   discussao_id  BigInt
   comentarios   comentarios[]
   curtidas      curtidas[]
-  usuarios      usuarios      @relation(fields: [autor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  discussoes    discussoes    @relation(fields: [discussao_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  autor         usuarios      @relation(fields: [autor_id], references: [id], onDelete: Cascade)
+  discussao     discussoes    @relation(fields: [discussao_id], references: [id], onDelete: Cascade)
 
-  @@index([autor_id], map: "idx_postagens_autor_id")
-  @@index([discussao_id], map: "idx_postagens_discussao_id")
+  @@index([autor_id])
+  @@index([discussao_id])
 }
 
 model prompts {
@@ -113,20 +114,20 @@ model prompts {
   especialidade_id BigInt?
   comentarios      comentarios[]
   curtidas         curtidas[]
-  usuarios         usuarios        @relation(fields: [autor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  especialidades   especialidades? @relation(fields: [especialidade_id], references: [id], onUpdate: NoAction)
+  autor            usuarios        @relation(fields: [autor_id], references: [id], onDelete: Cascade)
+  especialidade    especialidades? @relation(fields: [especialidade_id], references: [id], onUpdate: NoAction)
 
-  @@index([autor_id], map: "idx_prompts_autor_id")
-  @@index([categoria], map: "idx_prompts_categoria")
-  @@index([especialidade_id], map: "idx_prompts_especialidade_id")
+  @@index([autor_id])
+  @@index([categoria])
+  @@index([especialidade_id])
 }
 
 model usuario_especialidades {
   id               BigInt         @id @default(autoincrement())
   usuario_id       BigInt
   especialidade_id BigInt
-  especialidades   especialidades @relation(fields: [especialidade_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  usuarios         usuarios       @relation(fields: [usuario_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  especialidade    especialidades @relation(fields: [especialidade_id], references: [id], onDelete: Cascade)
+  usuario          usuarios       @relation(fields: [usuario_id], references: [id], onDelete: Cascade)
 
   @@unique([usuario_id, especialidade_id])
 }

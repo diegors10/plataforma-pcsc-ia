@@ -50,14 +50,16 @@ const promptIdValidation = [
 ];
 
 // Rotas
-router.get('/prompts/:promptId/comments',
+router.get(
+  '/prompts/:promptId/comments',
   optionalAuth,
   promptIdValidation,
   handleValidationErrors,
   getCommentsByPrompt
 );
 
-router.post('/prompts/:promptId/comments',
+router.post(
+  '/prompts/:promptId/comments',
   authenticateToken,
   sanitizeInput,
   createCommentValidation,
@@ -65,7 +67,8 @@ router.post('/prompts/:promptId/comments',
   createComment
 );
 
-router.put('/comments/:id',
+router.put(
+  '/comments/:id',
   authenticateToken,
   sanitizeInput,
   updateCommentValidation,
@@ -73,15 +76,18 @@ router.put('/comments/:id',
   updateComment
 );
 
-router.delete('/comments/:id',
+router.delete(
+  '/comments/:id',
   authenticateToken,
   idValidation,
   handleValidationErrors,
   deleteComment
 );
 
-router.post('/comments/:id/like',
-  authenticateToken,
+// Like aceita anônimo (optionalAuth)
+router.post(
+  '/comments/:id/like',
+  optionalAuth,              // <- alterado
   idValidation,
   handleValidationErrors,
   likeComment

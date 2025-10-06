@@ -1,5 +1,20 @@
 import prisma from '../config/database.js';
 
+// Helpers para lidar com BigInt
+const toBig = (v) => (v === null || v === undefined ? v : BigInt(v));
+const toNum = (v) => (typeof v === 'bigint' ? Number(v) : v);
+function serializeBigInt(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'bigint') return Number(obj);
+  if (Array.isArray(obj)) return obj.map(serializeBigInt);
+  if (typeof obj === 'object') {
+    const out = {};
+    for (const k of Object.keys(obj)) out[k] = serializeBigInt(obj[k]);
+    return out;
+  }
+  return obj;
+}
+
 export const getAllPrompts = async (req, res) => {
   try {
     const {
@@ -9,39 +24,33 @@ export const getAllPrompts = async (req, res) => {
       category,
       sort = 'recent',
       author,
-      featured
+      featured,
     } = req.query;
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const take = parseInt(limit);
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const take = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+    const skip = (pageNum - 1) * take;
 
-    // Construir filtros
+    // Filtros
     const where = {
       e_publico: true,
-      foi_aprovado: true
+      foi_aprovado: true,
     };
 
     if (search) {
       where.OR = [
         { titulo: { contains: search, mode: 'insensitive' } },
         { descricao: { contains: search, mode: 'insensitive' } },
-        { tags: { has: search } }
+        // tags é String[] no schema; para busca simples por termo único:
+        { tags: { has: search } },
       ];
     }
 
-    if (category) {
-      where.categoria = category;
-    }
+    if (category) where.categoria = category;
+    if (author) where.autor_id = toBig(author);
+    if (featured === 'true') where.e_destaque = true;
 
-    if (author) {
-      where.autor_id = parseInt(author);
-    }
-
-    if (featured === 'true') {
-      where.e_destaque = true;
-    }
-
-    // Definir ordenação
+    // Ordenação
     let orderBy = {};
     switch (sort) {
       case 'popular':
@@ -56,82 +65,73 @@ export const getAllPrompts = async (req, res) => {
         break;
     }
 
-    // Buscar prompts
-    const [prompts, total] = await Promise.all([
+    // Consulta
+    const [rows, total] = await Promise.all([
       prisma.prompts.findMany({
         where,
         skip,
         take,
         orderBy,
-        include: {
-          usuarios: {
-            select: {
-              id: true,
-              nome: true,
-              avatar: true
-            }
+        select: {
+          id: true,
+          titulo: true,
+          descricao: true,
+          conteudo: false,
+          categoria: true,
+          tags: true,
+          visualizacoes: true,
+          criado_em: true,
+          atualizado_em: true,
+          autor: {
+            select: { id: true, nome: true, avatar: true },
           },
-          especialidades: {
-            select: {
-              id: true,
-              nome: true,
-              cor: true,
-              icone: true
-            }
+          especialidade: {
+            select: { id: true, nome: true, cor: true, icone: true },
           },
           _count: {
-            select: {
-              curtidas: true,
-              comentarios: true
-            }
-          }
-        }
+            select: { curtidas: true, comentarios: true },
+          },
+        },
       }),
-      prisma.prompts.count({ where })
+      prisma.prompts.count({ where }),
     ]);
 
-    // Verificar se o usuário curtiu cada prompt (se autenticado)
-    let promptsWithLikes = prompts;
+    // Verificar likes do usuário autenticado
+    let promptsWithLikes;
     if (req.user) {
-      const userLikes = await prisma.curtidas.findMany({
-        where: {
-          usuario_id: req.user.id,
-          prompt_id: { in: prompts.map(p => p.id) }
-        },
-        select: { prompt_id: true }
+      const ids = rows.map((p) => p.id);
+      const likes = await prisma.curtidas.findMany({
+        where: { usuario_id: toBig(req.user.id), prompt_id: { in: ids } },
+        select: { prompt_id: true },
       });
-
-      const likedPromptIds = new Set(userLikes.map(like => like.prompt_id));
-
-      promptsWithLikes = prompts.map(prompt => ({
-        ...prompt,
-        isLiked: likedPromptIds.has(prompt.id),
-        likes: prompt._count.curtidas,
-        comments: prompt._count.comentarios
+      const likedIds = new Set(likes.map((l) => l.prompt_id));
+      promptsWithLikes = rows.map((p) => ({
+        ...p,
+        isLiked: likedIds.has(p.id),
+        likes: p._count.curtidas,
+        comments: p._count.comentarios,
       }));
     } else {
-      promptsWithLikes = prompts.map(prompt => ({
-        ...prompt,
+      promptsWithLikes = rows.map((p) => ({
+        ...p,
         isLiked: false,
-        likes: prompt._count.curtidas,
-        comments: prompt._count.comentarios
+        likes: p._count.curtidas,
+        comments: p._count.comentarios,
       }));
     }
 
-    res.json({
-      prompts: promptsWithLikes,
+    return res.json({
+      prompts: serializeBigInt(promptsWithLikes),
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pageNum,
+        limit: take,
         total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
+        pages: Math.max(1, Math.ceil(total / take)),
+      },
     });
   } catch (error) {
     console.error('Erro ao buscar prompts:', error);
-    res.status(500).json({
-      error: 'Erro interno do servidor'
-    });
+    return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 };
 
@@ -139,77 +139,77 @@ export const getPromptById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const prompt = await prisma.prompts.findUnique({
-      where: { 
-        id: parseInt(id),
+    // findUnique não aceita filtros não-únicos; use findFirst com todos os filtros
+    const prompt = await prisma.prompts.findFirst({
+      where: {
+        id: toBig(id),
         e_publico: true,
-        foi_aprovado: true
+        foi_aprovado: true,
       },
-      include: {
-        usuarios: {
+      select: {
+        id: true,
+        titulo: true,
+        descricao: true,
+        conteudo: true,
+        categoria: true,
+        tags: true,
+        visualizacoes: true,
+        criado_em: true,
+        atualizado_em: true,
+        autor: {
           select: {
             id: true,
             nome: true,
             avatar: true,
             cargo: true,
-            departamento: true
-          }
+            departamento: true,
+          },
         },
-        especialidades: {
-          select: {
-            id: true,
-            nome: true,
-            cor: true,
-            icone: true
-          }
+        especialidade: {
+          select: { id: true, nome: true, cor: true, icone: true },
         },
-        _count: {
-          select: {
-            curtidas: true,
-            comentarios: true
-          }
-        }
-      }
+        _count: { select: { curtidas: true, comentarios: true } },
+      },
     });
 
     if (!prompt) {
-      return res.status(404).json({
-        error: 'Prompt não encontrado'
-      });
+      return res.status(404).json({ error: 'Prompt não encontrado' });
     }
 
     // Incrementar visualizações
     await prisma.prompts.update({
-      where: { id: parseInt(id) },
-      data: { visualizacoes: { increment: 1 } }
+      where: { id: toBig(id) },
+      data: { visualizacoes: { increment: 1 } },
+      select: { id: true }, // evita retornar BigInt no update
     });
 
-    // Verificar se o usuário curtiu o prompt (se autenticado)
+    // Verificar like do usuário
     let isLiked = false;
     if (req.user) {
       const like = await prisma.curtidas.findUnique({
         where: {
           usuario_id_prompt_id: {
-            usuario_id: req.user.id,
-            prompt_id: parseInt(id)
-          }
-        }
+            usuario_id: toBig(req.user.id),
+            prompt_id: toBig(id),
+          },
+        },
+        select: { id: true },
       });
       isLiked = !!like;
     }
 
-    res.json({
-      ...prompt,
-      isLiked,
-      likes: prompt._count.curtidas,
-      comments: prompt._count.comentarios,
-      views: prompt.visualizacoes + 1
-    });
+    return res.json(
+      serializeBigInt({
+        ...prompt,
+        isLiked,
+        likes: prompt._count.curtidas,
+        comments: prompt._count.comentarios,
+        views: toNum(prompt.visualizacoes) + 1,
+      })
+    );
   } catch (error) {
     console.error('Erro ao buscar prompt:', error);
-    res.status(500).json({
-      error: 'Erro interno do servidor'
-    });
+    return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 };
 
@@ -222,7 +222,7 @@ export const createPrompt = async (req, res) => {
       categoria,
       tags,
       especialidade_id,
-      e_publico = true
+      e_publico = true,
     } = req.body;
 
     const prompt = await prisma.prompts.create({
@@ -231,44 +231,39 @@ export const createPrompt = async (req, res) => {
         descricao,
         conteudo,
         categoria,
-        tags: tags || [],
-        especialidade_id: especialidade_id ? parseInt(especialidade_id) : null,
+        tags: Array.isArray(tags) ? tags : [],
+        especialidade_id: especialidade_id ? toBig(especialidade_id) : null,
         e_publico,
-        autor_id: req.user.id
+        autor_id: toBig(req.user.id),
       },
-      include: {
-        usuarios: {
-          select: {
-            id: true,
-            nome: true,
-            avatar: true
-          }
-        },
-        especialidades: {
-          select: {
-            id: true,
-            nome: true,
-            cor: true,
-            icone: true
-          }
-        }
-      }
+      select: {
+        id: true,
+        titulo: true,
+        descricao: true,
+        categoria: true,
+        tags: true,
+        visualizacoes: true,
+        criado_em: true,
+        atualizado_em: true,
+        autor: { select: { id: true, nome: true, avatar: true } },
+        especialidade: { select: { id: true, nome: true, cor: true, icone: true } },
+      },
     });
 
-    res.status(201).json({
-      message: 'Prompt criado com sucesso',
-      prompt: {
-        ...prompt,
-        likes: 0,
-        comments: 0,
-        isLiked: false
-      }
-    });
+    return res.status(201).json(
+      serializeBigInt({
+        message: 'Prompt criado com sucesso',
+        prompt: {
+          ...prompt,
+          likes: 0,
+          comments: 0,
+          isLiked: false,
+        },
+      })
+    );
   } catch (error) {
     console.error('Erro ao criar prompt:', error);
-    res.status(500).json({
-      error: 'Erro interno do servidor'
-    });
+    return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 };
 
@@ -282,76 +277,62 @@ export const updatePrompt = async (req, res) => {
       categoria,
       tags,
       especialidade_id,
-      e_publico
+      e_publico,
     } = req.body;
 
-    // Verificar se o prompt existe e pertence ao usuário
-    const existingPrompt = await prisma.prompts.findUnique({
-      where: { id: parseInt(id) }
+    const existing = await prisma.prompts.findUnique({
+      where: { id: toBig(id) },
+      select: { id: true, autor_id: true, foi_aprovado: true },
     });
 
-    if (!existingPrompt) {
-      return res.status(404).json({
-        error: 'Prompt não encontrado'
-      });
+    if (!existing) {
+      return res.status(404).json({ error: 'Prompt não encontrado' });
     }
 
-    if (existingPrompt.autor_id !== req.user.id && !req.user.e_admin) {
-      return res.status(403).json({
-        error: 'Acesso negado'
-      });
+    if (existing.autor_id !== toBig(req.user.id) && !req.user.e_admin) {
+      return res.status(403).json({ error: 'Acesso negado' });
     }
 
-    const prompt = await prisma.prompts.update({
-      where: { id: parseInt(id) },
+    const updated = await prisma.prompts.update({
+      where: { id: toBig(id) },
       data: {
         titulo,
         descricao,
         conteudo,
         categoria,
-        tags: tags || [],
-        especialidade_id: especialidade_id ? parseInt(especialidade_id) : null,
+        tags: Array.isArray(tags) ? tags : [],
+        especialidade_id: especialidade_id ? toBig(especialidade_id) : null,
         e_publico,
-        foi_aprovado: req.user.e_admin ? existingPrompt.foi_aprovado : false // Reset approval if not admin
+        foi_aprovado: req.user.e_admin ? existing.foi_aprovado : false,
       },
-      include: {
-        usuarios: {
-          select: {
-            id: true,
-            nome: true,
-            avatar: true
-          }
-        },
-        especialidades: {
-          select: {
-            id: true,
-            nome: true,
-            cor: true,
-            icone: true
-          }
-        },
-        _count: {
-          select: {
-            curtidas: true,
-            comentarios: true
-          }
-        }
-      }
+      select: {
+        id: true,
+        titulo: true,
+        descricao: true,
+        categoria: true,
+        tags: true,
+        visualizacoes: true,
+        criado_em: true,
+        atualizado_em: true,
+        autor: { select: { id: true, nome: true, avatar: true } },
+        especialidade: { select: { id: true, nome: true, cor: true, icone: true } },
+        _count: { select: { curtidas: true, comentarios: true } },
+      },
     });
 
-    res.json({
-      message: 'Prompt atualizado com sucesso',
-      prompt: {
-        ...prompt,
-        likes: prompt._count.curtidas,
-        comments: prompt._count.comentarios
-      }
-    });
+    return res.json(
+      serializeBigInt({
+        message: 'Prompt atualizado com sucesso',
+        prompt: {
+          ...updated,
+          likes: updated._count.curtidas,
+          comments: updated._count.comentarios,
+        },
+      })
+    );
   } catch (error) {
     console.error('Erro ao atualizar prompt:', error);
-    res.status(500).json({
-      error: 'Erro interno do servidor'
-    });
+    return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 };
 
@@ -359,35 +340,25 @@ export const deletePrompt = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Verificar se o prompt existe e pertence ao usuário
-    const existingPrompt = await prisma.prompts.findUnique({
-      where: { id: parseInt(id) }
+    const existing = await prisma.prompts.findUnique({
+      where: { id: toBig(id) },
+      select: { id: true, autor_id: true },
     });
 
-    if (!existingPrompt) {
-      return res.status(404).json({
-        error: 'Prompt não encontrado'
-      });
+    if (!existing) {
+      return res.status(404).json({ error: 'Prompt não encontrado' });
     }
 
-    if (existingPrompt.autor_id !== req.user.id && !req.user.e_admin) {
-      return res.status(403).json({
-        error: 'Acesso negado'
-      });
+    if (existing.autor_id !== toBig(req.user.id) && !req.user.e_admin) {
+      return res.status(403).json({ error: 'Acesso negado' });
     }
 
-    await prisma.prompts.delete({
-      where: { id: parseInt(id) }
-    });
+    await prisma.prompts.delete({ where: { id: toBig(id) } });
 
-    res.json({
-      message: 'Prompt excluído com sucesso'
-    });
+    return res.json({ message: 'Prompt excluído com sucesso' });
   } catch (error) {
     console.error('Erro ao excluir prompt:', error);
-    res.status(500).json({
-      error: 'Erro interno do servidor'
-    });
+    return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 };
 
@@ -395,106 +366,148 @@ export const likePrompt = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Verificar se o prompt existe
+    // Confere existência do prompt (para responder 404 se for inválido)
     const prompt = await prisma.prompts.findUnique({
-      where: { id: parseInt(id) }
+      where: { id: BigInt(id) },
+      select: { id: true },
     });
 
     if (!prompt) {
-      return res.status(404).json({
-        error: 'Prompt não encontrado'
+      return res.status(404).json({ error: 'Prompt não encontrado' });
+    }
+
+    // Se NÃO estiver autenticado, responde sucesso "efêmero" (sem tocar no banco)
+    if (!req.user) {
+      // opcional: o frontend pode enviar body { action: 'like' | 'unlike' }
+      const action = (req.body?.action || 'like').toLowerCase();
+      const isLiked = action !== 'unlike';
+
+      return res.json({
+        message: isLiked ? 'Curtida registrada (anônima)' : 'Curtida removida (anônima)',
+        isLiked,
+        anonymous: true,     // dica pro front tratar como “local only”
       });
     }
 
-    // Verificar se já curtiu
+    // ------- caminho autenticado: toggle no banco -------
     const existingLike = await prisma.curtidas.findUnique({
       where: {
         usuario_id_prompt_id: {
-          usuario_id: req.user.id,
-          prompt_id: parseInt(id)
-        }
-      }
+          usuario_id: BigInt(req.user.id),
+          prompt_id: BigInt(id),
+        },
+      },
+      select: { id: true },
     });
 
     if (existingLike) {
-      // Remover curtida
-      await prisma.curtidas.delete({
-        where: { id: existingLike.id }
-      });
-
-      res.json({
-        message: 'Curtida removida',
-        isLiked: false
-      });
+      await prisma.curtidas.delete({ where: { id: existingLike.id } });
+      return res.json({ message: 'Curtida removida', isLiked: false, anonymous: false });
     } else {
-      // Adicionar curtida
       await prisma.curtidas.create({
         data: {
-          usuario_id: req.user.id,
-          prompt_id: parseInt(id)
-        }
+          usuario_id: BigInt(req.user.id),
+          prompt_id: BigInt(id),
+        },
+        select: { id: true },
       });
-
-      res.json({
-        message: 'Prompt curtido',
-        isLiked: true
-      });
+      return res.json({ message: 'Prompt curtido', isLiked: true, anonymous: false });
     }
   } catch (error) {
     console.error('Erro ao curtir prompt:', error);
-    res.status(500).json({
-      error: 'Erro interno do servidor'
-    });
+    return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 };
 
+
 export const getFeaturedPrompts = async (req, res) => {
   try {
-    const prompts = await prisma.prompts.findMany({
-      where: {
-        e_destaque: true,
-        e_publico: true,
-        foi_aprovado: true
-      },
+    const rows = await prisma.prompts.findMany({
+      where: { e_destaque: true, e_publico: true, foi_aprovado: true },
       take: 6,
       orderBy: { criado_em: 'desc' },
-      include: {
-        usuarios: {
-          select: {
-            id: true,
-            nome: true,
-            avatar: true
-          }
-        },
-        especialidades: {
-          select: {
-            id: true,
-            nome: true,
-            cor: true,
-            icone: true
-          }
-        },
-        _count: {
-          select: {
-            curtidas: true,
-            comentarios: true
-          }
-        }
-      }
+      select: {
+        id: true,
+        titulo: true,
+        descricao: true,
+        categoria: true,
+        tags: true,
+        visualizacoes: true,
+        criado_em: true,
+        atualizado_em: true,
+        autor: { select: { id: true, nome: true, avatar: true } },
+        especialidade: { select: { id: true, nome: true, cor: true, icone: true } },
+        _count: { select: { curtidas: true, comentarios: true } },
+      },
     });
 
-    const promptsWithCounts = prompts.map(prompt => ({
-      ...prompt,
-      likes: prompt._count.curtidas,
-      comments: prompt._count.comentarios,
-      isLiked: false // Será definido no frontend se necessário
+    const data = rows.map((p) => ({
+      ...p,
+      likes: p._count.curtidas,
+      comments: p._count.comentarios,
+      isLiked: false,
     }));
 
-    res.json({ prompts: promptsWithCounts });
+    return res.json({ prompts: serializeBigInt(data) });
   } catch (error) {
     console.error('Erro ao buscar prompts em destaque:', error);
-    res.status(500).json({
-      error: 'Erro interno do servidor'
+    return res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+};
+
+/**
+ * Prompts relacionados pela mesma categoria, ordenados pelos mais curtidos.
+ */
+export const getRelatedPrompts = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(10, Math.max(1, parseInt(req.query.limit ?? '3', 10)));
+
+    const current = await prisma.prompts.findUnique({
+      where: { id: toBig(id) },
+      select: { categoria: true },
     });
+
+    if (!current) {
+      return res.status(404).json({ error: 'Prompt não encontrado' });
+    }
+
+    const rows = await prisma.prompts.findMany({
+      where: {
+        categoria: current.categoria,
+        id: { not: toBig(id) },
+        e_publico: true,
+        foi_aprovado: true,
+      },
+      take: limit,
+      orderBy: [
+        { curtidas: { _count: 'desc' } },
+        { visualizacoes: 'desc' },
+        { criado_em: 'desc' },
+      ],
+      select: {
+        id: true,
+        titulo: true,
+        descricao: true,
+        categoria: true,
+        tags: true,
+        visualizacoes: true,
+        criado_em: true,
+        atualizado_em: true,
+        autor: { select: { id: true, nome: true, avatar: true } },
+        _count: { select: { curtidas: true, comentarios: true } },
+      },
+    });
+
+    const data = rows.map((p) => ({
+      ...p,
+      likes: p._count.curtidas,
+      comments: p._count.comentarios,
+    }));
+
+    return res.json({ prompts: serializeBigInt(data) });
+  } catch (error) {
+    console.error('Erro ao buscar prompts relacionados:', error);
+    return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 };

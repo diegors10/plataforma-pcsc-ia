@@ -9,12 +9,15 @@ import {
   updatePrompt,
   deletePrompt,
   likePrompt,
-  getFeaturedPrompts
+  getFeaturedPrompts,
+  getRelatedPrompts
 } from '../controllers/promptsController.js';
 
 const router = express.Router();
 
-// Validações
+/**
+ * Validações de criação
+ */
 const createPromptValidation = [
   body('titulo')
     .trim()
@@ -51,11 +54,58 @@ const createPromptValidation = [
     .withMessage('Campo público deve ser verdadeiro ou falso')
 ];
 
+/**
+ * Validações de atualização (todos opcionais para não forçar PUT completo)
+ */
 const updatePromptValidation = [
   param('id')
     .isInt({ min: 1 })
     .withMessage('ID deve ser um número inteiro positivo'),
-  ...createPromptValidation
+
+  body('titulo')
+    .optional()
+    .trim()
+    .isLength({ min: 5, max: 255 })
+    .withMessage('Título deve ter entre 5 e 255 caracteres'),
+
+  body('descricao')
+    .optional()
+    .trim()
+    .isLength({ min: 10, max: 1000 })
+    .withMessage('Descrição deve ter entre 10 e 1000 caracteres'),
+
+  body('conteudo')
+    .optional()
+    .trim()
+    .isLength({ min: 20 })
+    .withMessage('Conteúdo deve ter pelo menos 20 caracteres'),
+
+  body('categoria')
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 255 })
+    .withMessage('Categoria deve ter entre 2 e 255 caracteres'),
+
+  body('tags')
+    .optional()
+    .isArray()
+    .withMessage('Tags deve ser um array'),
+
+  body('tags.*')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Cada tag deve ter entre 1 e 50 caracteres'),
+
+  body('especialidade_id')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('ID da especialidade deve ser um número inteiro positivo'),
+
+  body('e_publico')
+    .optional()
+    .isBoolean()
+    .withMessage('Campo público deve ser verdadeiro ou falso')
 ];
 
 const idValidation = [
@@ -64,6 +114,9 @@ const idValidation = [
     .withMessage('ID deve ser um número inteiro positivo')
 ];
 
+/**
+ * Validações de query na listagem
+ */
 const queryValidation = [
   query('page')
     .optional()
@@ -76,7 +129,25 @@ const queryValidation = [
   query('sort')
     .optional()
     .isIn(['recent', 'popular', 'views'])
-    .withMessage('Ordenação deve ser: recent, popular ou views')
+    .withMessage('Ordenação deve ser: recent, popular ou views'),
+  query('search')
+    .optional()
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Parâmetro search não pode ser vazio'),
+  query('category')
+    .optional()
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Parâmetro category não pode ser vazio'),
+  query('author')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Parâmetro author deve ser um número inteiro positivo'),
+  query('featured')
+    .optional()
+    .isIn(['true', 'false'])
+    .withMessage('Parâmetro featured deve ser true ou false'),
 ];
 
 // Rotas públicas
@@ -88,7 +159,15 @@ router.get('/',
 );
 
 router.get('/featured',
+  optionalAuth,
   getFeaturedPrompts
+);
+
+router.get('/:id/related',
+  optionalAuth,
+  idValidation,
+  handleValidationErrors,
+  getRelatedPrompts
 );
 
 router.get('/:id',
@@ -123,7 +202,7 @@ router.delete('/:id',
 );
 
 router.post('/:id/like',
-  authenticateToken,
+  optionalAuth,
   idValidation,
   handleValidationErrors,
   likePrompt

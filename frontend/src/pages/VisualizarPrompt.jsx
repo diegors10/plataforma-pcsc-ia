@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { hasLikedPrompt, markLikedPrompt, getLocalLikeDelta } from '@/utils/likesStore';
+import { formatTimeAgo } from '@/utils/time';
 import {
   Loader2,
   ArrowLeft,
@@ -20,6 +21,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { promptsAPI, authAPI } from '@/lib/api';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
+import CommentsSection from '@/components/CommentsSection';
 
 const toArray = (val) => (Array.isArray(val) ? val : (val ? [val] : []));
 const safeNumber = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
@@ -163,8 +166,15 @@ const VisualizarPrompt = () => {
       const normalized = normalizePrompt(data);
       setPrompt(applyLocalLikeState(normalized));
 
-      const rel = raw?.related ?? raw?.relacionados ?? [];
-      setRelacionados(normalizeRelated(rel));
+      // Buscar prompts relacionados separadamente
+      try {
+        const relatedResp = await promptsAPI.getRelated(pid);
+        const relatedData = relatedResp?.data?.prompts || [];
+        setRelacionados(normalizeRelated(relatedData));
+      } catch (relatedErr) {
+        console.error('Erro ao buscar prompts relacionados:', relatedErr);
+        setRelacionados([]);
+      }
     } catch (err) {
       console.error(err);
       setError('Não foi possível carregar o prompt.');
@@ -253,16 +263,7 @@ const VisualizarPrompt = () => {
     }
   };
 
-  const formatTimeAgo = (dateString) => {
-    const now = new Date();
-    const date = new Date(dateString);
-    const diffInHours = Math.floor((now - date) / (1000 * 60 * 60));
-    if (diffInHours < 1) return 'Agora mesmo';
-    if (diffInHours < 24) return `${diffInHours}h atrás`;
-    const diffInDays = Math.floor(diffInHours / 24);
-    if (diffInDays < 7) return `${diffInDays}d atrás`;
-    return new Date(dateString).toLocaleDateString('pt-BR');
-  };
+  // Removemos a função local de formatação de tempo. Em vez disso, utilizamos o util compartilhado.
 
   const ContentSkeleton = () => (
     <div className="space-y-3 animate-pulse">
@@ -463,37 +464,9 @@ const VisualizarPrompt = () => {
       </Card>
 
       {/* Comentários */}
-      <Card id="comments" className="mb-6">
-        <CardHeader>
-          <CardTitle>Comentários</CardTitle>
-          <CardDescription>
-            {prompt.commentsCount} {prompt.commentsCount === 1 ? 'comentário' : 'comentários'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {comentarios.length === 0 ? (
-            <div className="text-sm text-muted-foreground">Nenhum comentário ainda.</div>
-          ) : (
-            <div className="space-y-4">
-              {comentarios.map((c) => (
-                <div key={c.id} className="flex">
-                  <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center mr-3">
-                    <User className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">{c.autor?.nome || 'Usuário'}</div>
-                    <div className="text-xs text-muted-foreground mb-1">
-                      <Clock className="inline h-3 w-3 mr-1" />
-                      {formatTimeAgo(c.criadoEm)}
-                    </div>
-                    <div className="text-sm whitespace-pre-wrap">{c.conteudo}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <div className="mb-6">
+        <CommentsSection promptId={prompt.id} />
+      </div>
 
       {/* Relacionados */}
       <Card>

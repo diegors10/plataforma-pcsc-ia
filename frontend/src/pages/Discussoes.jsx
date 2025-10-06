@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { discussionsAPI } from '@/lib/api';
+import { Switch } from '@/components/ui/switch';
 
 const Discussoes = () => {
   const [discussions, setDiscussions] = useState([]);
@@ -27,6 +28,9 @@ const Discussoes = () => {
   const [submittingDiscussion, setSubmittingDiscussion] = useState(false);
   const [titleError, setTitleError] = useState('');
   const [contentError, setContentError] = useState('');
+
+  // Define se a discussão é aberta (qualquer um pode interagir) ou fechada (somente logados)
+  const [isOpen, setIsOpen] = useState(true);
 
   // Discussões serão carregadas da API
 
@@ -105,7 +109,8 @@ const Discussoes = () => {
       const payload = {
         titulo: newDiscussionTitle.trim(),
         descricao: newDiscussionContent.trim(),
-        categoria: 'Geral'
+        categoria: 'Geral',
+        e_aberta: isOpen
       };
       const response = await discussionsAPI.create(payload);
       const created = response.data.discussion;
@@ -127,6 +132,7 @@ const Discussoes = () => {
       setDiscussions([adapted, ...discussions]);
       setNewDiscussionTitle('');
       setNewDiscussionContent('');
+      setIsOpen(true);
       toast.success('Discussão criada com sucesso!', {
         description: 'Sua discussão foi publicada e está aguardando interações.'        
       });
@@ -196,6 +202,22 @@ const Discussoes = () => {
                   className={`min-h-[100px] ${contentError ? 'border-red-500' : ''}`}
                 />
                 {contentError && <p className="text-red-500 text-sm mt-1">{contentError}</p>}
+              </div>
+              {/* Toggle Aberta/Fechada */}
+              <div className="flex items-center space-x-3">
+                <Switch
+                  checked={isOpen}
+                  onCheckedChange={setIsOpen}
+                  id="toggle-open-discussion"
+                />
+                <label
+                  htmlFor="toggle-open-discussion"
+                  className="text-sm text-muted-foreground cursor-pointer select-none"
+                >
+                  {isOpen
+                    ? 'Discussão aberta – qualquer usuário pode curtir e comentar'
+                    : 'Discussão fechada – somente usuários logados podem interagir'}
+                </label>
               </div>
               <div className="flex justify-end">
                 <Button type="submit" disabled={submittingDiscussion}>

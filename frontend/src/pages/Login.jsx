@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { Mail, Lock, Loader2, UserPlus } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Mail, Lock, Loader2, UserPlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 const Login = () => {
   const { login } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -36,8 +37,20 @@ const Login = () => {
       <div className="max-w-md w-full space-y-8">
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Acessar Conta</CardTitle>
-            <CardDescription>Informe suas credenciais para continuar.</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-2xl">Acessar Conta</CardTitle>
+                <CardDescription>Informe suas credenciais para continuar.</CardDescription>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => navigate(-1)}
+                className="h-8 w-8 p-0"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {fromMessage && (

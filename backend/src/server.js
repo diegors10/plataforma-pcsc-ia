@@ -13,6 +13,7 @@ import discussionsRoutes from './routes/discussions.js';
 import postsRoutes from './routes/posts.js';
 import specialtiesRoutes from './routes/specialties.js';
 import usersRoutes from './routes/users.js';
+import statsRoutes from './routes/stats.js';
 
 // Variáveis de ambiente
 dotenv.config();
@@ -76,6 +77,7 @@ app.use('/api/discussions', discussionsRoutes);
 app.use('/api', postsRoutes);
 app.use('/api', specialtiesRoutes);
 app.use('/api', usersRoutes);
+app.use('/api/stats', statsRoutes);
 
 // Arquivos estáticos (se necessário)
 app.use('/uploads', express.static('uploads'));

@@ -72,6 +72,7 @@ export const promptsAPI = {
     }),
 
   getFeatured: (axiosConfig = {}) => api.get('/prompts/featured', axiosConfig),
+  getRelated: (id, axiosConfig = {}) => api.get(`/prompts/${id}/related`, axiosConfig),
 };
 
 export const commentsAPI = {
@@ -136,6 +137,8 @@ export const authAPI = {
 
 export const statsAPI = {
   getDashboard: (axiosConfig = {}) => api.get('/stats/dashboard', axiosConfig),
+  getPrompts: (axiosConfig = {}) => api.get('/stats/prompts', axiosConfig),
+  getUsers: (axiosConfig = {}) => api.get('/stats/users', axiosConfig),
 };
 
 export default api;

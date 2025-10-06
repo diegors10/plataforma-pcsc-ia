@@ -11,6 +11,15 @@ export const register = async (req, res) => {
       return res.status(400).json({ error: 'Email e senha são obrigatórios' });
     }
 
+    // Validação de domínio de e-mail
+    // Somente e-mails institucionais (@pc.sc.gov.br) são aceitos. Caso contrário,
+    // retornamos uma mensagem clara para o frontend exibir ao usuário.
+    if (!email.endsWith('@pc.sc.gov.br')) {
+      return res.status(400).json({
+        error: 'Cadastro permitido apenas para e-mails institucionais (@pc.sc.gov.br).'
+      });
+    }
+
     const existingUser = await prisma.usuarios.findFirst({
       where: {
         OR: [

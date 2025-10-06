@@ -23,23 +23,21 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import backgroundImage from '@/assets/ia_policial_background.png';
-import { promptsAPI } from '@/lib/api';
+import { promptsAPI, statsAPI } from '@/lib/api';
+import { formatTimeAgo } from '@/utils/time';
 import { useAuth } from '@/contexts/AuthContext';
+import CategoriesCarousel from '@/components/CategoriesCarousel';
 
 const Home = () => {
   const [featuredPrompts, setFeaturedPrompts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [stats, setStats] = useState({ totalPrompts: 0, totalUsers: 0 });
+  const [recentActivities, setRecentActivities] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const { isAuthenticated } = useAuth();
 
-  // Dados mockados para atividades recentes (até implementar no backend)
-  const recentActivities = [
-    { user: "Investigador Lima", action: "adicionou um novo prompt", item: "Análise de Redes Sociais", time: "2h atrás" },
-    { user: "Delegada Oliveira", action: "comentou em", item: "Interrogatório Eficaz", time: "4h atrás" },
-    { user: "Perito Souza", action: "curtiu", item: "Análise Forense Digital", time: "6h atrás" },
-    { user: "Analista Ferreira", action: "atualizou", item: "Mapeamento Criminal", time: "8h atrás" }
-  ];
+
 
   const categoryIcons = {
     'Investigação Digital': Database,
@@ -65,33 +63,71 @@ const Home = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        // Obter prompts em destaque da API
-        const featuredRes = await promptsAPI.getFeatured();
-        const featuredList = featuredRes.data.prompts || [];
-        const adaptedFeatured = featuredList.map((p) => ({
+        // Buscar estatísticas do dashboard
+        const dashboardRes = await statsAPI.getDashboard();
+        const dashboardData = dashboardRes.data;
+
+        // Definir estatísticas (prompts compartilhados e usuários ativos)
+        setStats({
+          totalPrompts: dashboardData.stats?.totalPrompts || 0,
+          totalUsers: dashboardData.stats?.totalUsers || 0
+        });
+
+        // Definir categorias de destaque
+        setCategories(dashboardData.categories || []);
+
+        // Obter prompts em destaque (top 3 mais visualizados). Caso venham mais, recortar aqui.
+        const topPrompts = Array.isArray(dashboardData.topPrompts) ? dashboardData.topPrompts.slice(0, 3) : [];
+        const adaptedFeatured = topPrompts.map((p) => ({
           id: p.id,
           title: p.titulo || p.title,
-          description: p.descricao || p.description,
+          description: '',
           author: { name: p.usuarios?.nome || 'Usuário' },
-          views: p.views || p.visualizacoes || 0,
-          likes: p.likes || 0,
-          comments: p.comments || 0,
+          views: p.visualizacoes || 0,
+          likes: 0,
+          comments: 0,
           category: p.categoria || p.category
         }));
         setFeaturedPrompts(adaptedFeatured);
-        // Obter categorias a partir dos prompts
-        const promptsRes = await promptsAPI.getAll({ page: 1, limit: 100 });
-        const items = promptsRes.data.prompts || [];
-        const counts = items.reduce((acc, item) => {
-          const cat = item.categoria || item.category;
-          if (!cat) return acc;
-          acc[cat] = (acc[cat] || 0) + 1;
-          return acc;
-        }, {});
-        const categoriesList = Object.entries(counts).map(([name, count]) => ({ name, count }));
-        setCategories(categoriesList);
+
+        // Processar atividades recentes: filtrar apenas usuários autenticados (já vem filtrado no backend)
+        let activities = [];
+        // Adicionar prompts recentes
+        if (dashboardData.recentActivities?.prompts) {
+          dashboardData.recentActivities.prompts.forEach((prompt) => {
+            activities.push({
+              user: prompt.usuarios?.nome || 'Usuário',
+              action: 'adicionou um novo prompt',
+              item: prompt.titulo,
+              time: new Date(prompt.criado_em),
+              type: 'prompt'
+            });
+          });
+        }
+        // Adicionar comentários recentes
+        if (dashboardData.recentActivities?.comments) {
+          dashboardData.recentActivities.comments.forEach((comment) => {
+            activities.push({
+              user: comment.usuarios?.nome || 'Usuário',
+              action: 'comentou em',
+              item: comment.prompts?.titulo || 'Prompt',
+              time: new Date(comment.criado_em),
+              type: 'comment'
+            });
+          });
+        }
+        // Ordenar atividades por data (mais recente primeiro) e gerar rótulo
+        activities.sort((a, b) => b.time - a.time);
+        const adaptedActivities = activities.slice(0, 4).map((act) => ({
+          ...act,
+          timeLabel: formatTimeAgo(act.time),
+        }));
+        setRecentActivities(adaptedActivities);
       } catch (err) {
         console.error('Erro ao carregar dados da página inicial', err);
+        setStats({ totalPrompts: 0, totalUsers: 0 });
+        setCategories([]);
+        setRecentActivities([]);
       } finally {
         setLoading(false);
       }
@@ -157,11 +193,11 @@ const Home = () => {
               </p>
               <div className="grid grid-cols-2 gap-6">
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-accent">150+</div>
+                  <div className="text-3xl font-bold text-accent">{stats.totalPrompts}+</div>
                   <div className="text-muted-foreground">Prompts Compartilhados</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-accent">80+</div>
+                  <div className="text-3xl font-bold text-accent">{stats.totalUsers}+</div>
                   <div className="text-muted-foreground">Policiais Ativos</div>
                 </div>
               </div>
@@ -302,27 +338,7 @@ const Home = () => {
             <p className="text-lg text-muted-foreground">Explore prompts organizados por área de atuação</p>
           </div>
           
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
-            {categories.map((category, index) => {
-              const IconComponent = categoryIcons[category.name] || Brain;
-              const colorClass = categoryColors[category.name] || 'bg-gray-500';
-              return (
-                <Card key={index} className="hover:shadow-xl transition-all duration-300 group cursor-pointer hover:-translate-y-2 border-t-4 border-t-accent">
-                  <CardContent className="p-6 text-center">
-                    <div className={`w-14 h-14 ${colorClass} rounded-xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 shadow-lg`}>
-                      <IconComponent className="h-7 w-7 text-white" />
-                    </div>
-                    <h3 className="font-semibold text-foreground mb-2 group-hover:text-accent transition-colors duration-300">{category.name}</h3>
-                    <div className="flex items-center justify-center">
-                      <Badge variant="outline" className="text-xs bg-accent/10 text-accent border-accent/20">
-                        {category.count || 0} prompts
-                      </Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+          <CategoriesCarousel categories={categories} />
         </div>
       </section>
 
@@ -347,7 +363,7 @@ const Home = () => {
                           </p>
                           <div className="flex items-center mt-2 text-sm text-muted-foreground">
                             <Clock className="h-3 w-3 mr-1" />
-                            {activity.time}
+                            {activity.timeLabel}
                           </div>
                         </div>
                       </div>

@@ -22,6 +22,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { discussionsAPI, postsAPI } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  hasLikedPost,
+  markLikedPost,
+  unmarkLikedPost,
+  mergeIsLikedInPostList,
+} from '@/utils/postLikesStore';
 import { toast } from 'sonner';
 
 // Página para visualizar uma discussão específica e suas postagens
@@ -33,6 +40,9 @@ const VisualizarDiscussao = () => {
   const [newPostContent, setNewPostContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  // Contexto de autenticação
+  const { isAuthenticated } = useAuth();
 
   // Carregar dados da discussão e postagens ao montar
   useEffect(() => {
@@ -51,15 +61,16 @@ const VisualizarDiscussao = () => {
           updatedAt: d.atualizado_em || d.updatedAt,
           views: d.views || d.visualizacoes || 0,
           postsCount: d.posts || d.postsCount || 0,
+          isOpen: d.e_aberta !== undefined ? d.e_aberta : true,
           author: d.usuarios
             ? {
                 id: d.usuarios.id,
                 name: d.usuarios.nome,
                 avatar: d.usuarios.avatar,
                 role: d.usuarios.cargo,
-                department: d.usuarios.departamento
+                department: d.usuarios.departamento,
               }
-            : null
+            : null,
         };
         setDiscussion(adaptedDiscussion);
         // Buscar postagens
@@ -72,16 +83,18 @@ const VisualizarDiscussao = () => {
                 id: p.usuarios.id,
                 name: p.usuarios.nome,
                 avatar: p.usuarios.avatar,
-                role: p.usuarios.cargo
+                role: p.usuarios.cargo,
               }
             : null,
           content: p.conteudo,
           createdAt: p.criado_em,
           likes: p.likes || 0,
           comments: p.comments || 0,
-          isLiked: p.isLiked || false
+          isLiked: p.isLiked || false,
         }));
-        setPosts(adaptedPosts);
+        // Mesclar curtidas locais para posts quando usuário não está autenticado
+        const mergedPosts = isAuthenticated ? adaptedPosts : mergeIsLikedInPostList(adaptedPosts);
+        setPosts(mergedPosts);
       } catch (err) {
         console.error('Erro ao carregar discussão', err);
         toast.error('Erro ao carregar discussão.', { className: 'bg-red-500 text-white' });
@@ -109,6 +122,11 @@ const VisualizarDiscussao = () => {
       toast.error('Escreva algo antes de publicar');
       return;
     }
+    // Se a discussão estiver fechada e o usuário não estiver autenticado, impedir criação
+    if (discussion && discussion.isOpen === false && !isAuthenticated) {
+      toast.error('Faça login para publicar nesta discussão.');
+      return;
+    }
     try {
       setSubmitting(true);
       const res = await postsAPI.create(id, { conteudo: newPostContent.trim() });
@@ -120,15 +138,16 @@ const VisualizarDiscussao = () => {
               id: p.usuarios.id,
               name: p.usuarios.nome,
               avatar: p.usuarios.avatar,
-              role: p.usuarios.cargo
+              role: p.usuarios.cargo,
             }
           : null,
         content: p.conteudo,
         createdAt: p.criado_em,
         likes: 0,
         comments: 0,
-        isLiked: false
+        isLiked: false,
       };
+      // Se não autenticado, não há necessidade de chamar merge
       setPosts((prev) => [...prev, adapted]);
       setNewPostContent('');
       toast.success('Post publicado com sucesso!');
@@ -142,22 +161,55 @@ const VisualizarDiscussao = () => {
 
   // Curtir ou descurtir uma postagem
   const toggleLike = async (postId) => {
-    try {
-      await postsAPI.like(postId);
+    // se discussão está fechada e usuário não autenticado, não permite
+    if (discussion && discussion.isOpen === false && !isAuthenticated) {
+      toast.error('Faça login para curtir nesta discussão.');
+      return;
+    }
+    // Localizar o post atual
+    const current = posts.find((p) => p.id === postId);
+    if (!current) return;
+
+    // Se usuário autenticado, realiza a chamada ao backend
+    if (isAuthenticated) {
+      const dir = current.isLiked ? 'dec' : 'inc';
+      try {
+        // Chama a API com dir apropriado; usa params para query string
+        await postsAPI.like(postId, { params: { dir } });
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === postId
+              ? {
+                  ...p,
+                  isLiked: !p.isLiked,
+                  likes: p.isLiked ? Math.max(0, p.likes - 1) : p.likes + 1,
+                }
+              : p
+          )
+        );
+      } catch (err) {
+        console.error('Erro ao curtir post', err);
+        toast.error('Erro ao curtir post');
+      }
+    } else {
+      // Usuário não autenticado: manipula curtida localmente
+      const alreadyLiked = hasLikedPost(postId);
+      if (alreadyLiked) {
+        unmarkLikedPost(postId);
+      } else {
+        markLikedPost(postId);
+      }
       setPosts((prev) =>
         prev.map((p) =>
           p.id === postId
             ? {
                 ...p,
-                isLiked: !p.isLiked,
-                likes: p.isLiked ? p.likes - 1 : p.likes + 1
+                isLiked: !alreadyLiked,
+                likes: !alreadyLiked ? p.likes + 1 : Math.max(0, p.likes - 1),
               }
             : p
         )
       );
-    } catch (err) {
-      console.error('Erro ao curtir post', err);
-      toast.error('Erro ao curtir post');
     }
   };
 
@@ -250,6 +302,7 @@ const VisualizarDiscussao = () => {
                         variant="ghost"
                         size="sm"
                         onClick={() => toggleLike(post.id)}
+                        disabled={discussion.isOpen === false && !isAuthenticated}
                         className={post.isLiked ? 'text-accent' : 'text-muted-foreground hover:text-foreground'}
                       >
                         <ThumbsUp className="h-4 w-4 mr-1" />
@@ -265,32 +318,44 @@ const VisualizarDiscussao = () => {
         )}
         {/* Novo Post */}
         <Separator className="my-6" />
-        <Card>
-          <CardHeader>
-            <CardTitle>Nova Postagem</CardTitle>
-            <CardDescription>Compartilhe sua opinião na discussão.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleCreatePost} className="space-y-4">
-              <Textarea
-                placeholder="Escreva sua postagem aqui..."
-                value={newPostContent}
-                onChange={(e) => setNewPostContent(e.target.value)}
-                className="min-h-[80px]"
-              />
-              <div className="flex justify-end">
-                <Button type="submit" disabled={submitting}>
-                  {submitting ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin text-accent" />
-                  ) : (
-                    <Send className="h-4 w-4 mr-2" />
-                  )}
-                  Publicar Post
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+        {discussion.isOpen === false && !isAuthenticated ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Discussão Fechada</CardTitle>
+              <CardDescription>Apenas usuários autenticados podem participar.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-muted-foreground">Faça login para comentar ou curtir nesta discussão fechada.</div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Nova Postagem</CardTitle>
+              <CardDescription>Compartilhe sua opinião na discussão.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleCreatePost} className="space-y-4">
+                <Textarea
+                  placeholder="Escreva sua postagem aqui..."
+                  value={newPostContent}
+                  onChange={(e) => setNewPostContent(e.target.value)}
+                  className="min-h-[80px]"
+                />
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={submitting}>
+                    {submitting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin text-accent" />
+                    ) : (
+                      <Send className="h-4 w-4 mr-2" />
+                    )}
+                    Publicar Post
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
