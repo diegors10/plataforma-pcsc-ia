@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   ArrowRight, 
@@ -36,8 +36,7 @@ const Home = () => {
   const [loading, setLoading] = useState(true);
 
   const { isAuthenticated } = useAuth();
-
-
+  const ran = useRef(false); // evita chamadas duplicadas (Strict Mode)
 
   const categoryIcons = {
     'Investigação Digital': Database,
@@ -60,12 +59,15 @@ const Home = () => {
   };
 
   useEffect(() => {
+    if (ran.current) return;
+    ran.current = true;
+
     const fetchData = async () => {
       try {
         setLoading(true);
         // Buscar estatísticas do dashboard
         const dashboardRes = await statsAPI.getDashboard();
-        const dashboardData = dashboardRes.data;
+        const dashboardData = dashboardRes?.data ?? dashboardRes ?? {};
 
         // Definir estatísticas (prompts compartilhados e usuários ativos)
         setStats({
@@ -74,10 +76,12 @@ const Home = () => {
         });
 
         // Definir categorias de destaque
-        setCategories(dashboardData.categories || []);
+        setCategories(Array.isArray(dashboardData.categories) ? dashboardData.categories : []);
 
         // Obter prompts em destaque (top 3 mais visualizados). Caso venham mais, recortar aqui.
-        const topPrompts = Array.isArray(dashboardData.topPrompts) ? dashboardData.topPrompts.slice(0, 3) : [];
+        const topPrompts = Array.isArray(dashboardData.topPrompts)
+          ? dashboardData.topPrompts.slice(0, 3)
+          : [];
         const adaptedFeatured = topPrompts.map((p) => ({
           id: p.id,
           title: p.titulo || p.title,
@@ -90,9 +94,8 @@ const Home = () => {
         }));
         setFeaturedPrompts(adaptedFeatured);
 
-        // Processar atividades recentes: filtrar apenas usuários autenticados (já vem filtrado no backend)
+        // Processar atividades recentes
         let activities = [];
-        // Adicionar prompts recentes
         if (dashboardData.recentActivities?.prompts) {
           dashboardData.recentActivities.prompts.forEach((prompt) => {
             activities.push({
@@ -104,7 +107,6 @@ const Home = () => {
             });
           });
         }
-        // Adicionar comentários recentes
         if (dashboardData.recentActivities?.comments) {
           dashboardData.recentActivities.comments.forEach((comment) => {
             activities.push({
@@ -116,7 +118,8 @@ const Home = () => {
             });
           });
         }
-        // Ordenar atividades por data (mais recente primeiro) e gerar rótulo
+
+        // Ordenar e limitar
         activities.sort((a, b) => b.time - a.time);
         const adaptedActivities = activities.slice(0, 4).map((act) => ({
           ...act,
@@ -132,6 +135,7 @@ const Home = () => {
         setLoading(false);
       }
     };
+
     fetchData();
   }, []);
 

@@ -3,17 +3,17 @@ import { Swiper, SwiperSlide } from 'swiper/react';
 import { Autoplay, Navigation, Pagination } from 'swiper/modules';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Database, 
-  Search, 
-  FileText, 
-  Gavel, 
-  Shield, 
-  Brain, 
-  BookOpen 
+import {
+  Database,
+  Search,
+  FileText,
+  Gavel,
+  Shield,
+  Brain,
+  BookOpen
 } from 'lucide-react';
 
-// Estilos do Swiper
+// Swiper styles
 import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
@@ -42,10 +42,9 @@ const CategoriesCarousel = ({ categories = [] }) => {
     'Perícia': 'bg-orange-500'
   };
 
-  // Determina autoplay com base no total (slidesPerView máx=6 em desktop)
+  // Ativa autoplay apenas se houver mais itens que o visível em telas grandes
   useEffect(() => {
-    const total = Array.isArray(categories) ? categories.length : 0;
-    setShouldAutoplay(total > 6);
+    setShouldAutoplay((categories?.length || 0) > 6);
   }, [categories]);
 
   if (!categories || categories.length === 0) {
@@ -71,33 +70,31 @@ const CategoriesCarousel = ({ categories = [] }) => {
         pagination={categories.length > 6 ? { clickable: true } : false}
         breakpoints={{
           640: { slidesPerView: 3 },
-          1024: { slidesPerView: 6 },
+          1024: { slidesPerView: 6 }
         }}
         className="categories-swiper"
       >
         {categories.map((category, index) => {
-          // Compat: backend pode enviar { nome, totalPrompts } ou { name, count }
-          const catName = category.name ?? category.nome ?? 'Categoria';
-          const total = category.count ?? category.totalPrompts ?? 0;
+          // Aceita tanto `name` quanto `nome` vindos da API
+          const label = category.name || category.nome || 'Categoria';
+          const count = category.count ?? category.totalPrompts ?? 0;
 
-          const IconComponent = categoryIcons[catName] || Brain;
-          const colorClass = categoryColors[catName] || 'bg-gray-500';
-
-          const key = category.id ?? `${catName}-${index}`;
+          const IconComponent = categoryIcons[label] || Brain;
+          const colorClass = categoryColors[label] || 'bg-gray-500';
 
           return (
-            <SwiperSlide key={key}>
+            <SwiperSlide key={`${label}-${index}`}>
               <Card className="hover:shadow-xl transition-all duration-300 group cursor-pointer hover:-translate-y-2 border-t-4 border-t-accent h-full">
                 <CardContent className="p-6 text-center">
                   <div className={`w-14 h-14 ${colorClass} rounded-xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 shadow-lg`}>
-                    <IconComponent className="h-7 w-7 text-white" aria-hidden="true" />
+                    <IconComponent className="h-7 w-7 text-white" />
                   </div>
                   <h3 className="font-semibold text-foreground mb-2 group-hover:text-accent transition-colors duration-300 text-sm">
-                    {catName}
+                    {label}
                   </h3>
                   <div className="flex items-center justify-center">
                     <Badge variant="outline" className="text-xs bg-accent/10 text-accent border-accent/20">
-                      {total} prompts
+                      {count} prompts
                     </Badge>
                   </div>
                 </CardContent>
@@ -107,7 +104,7 @@ const CategoriesCarousel = ({ categories = [] }) => {
         })}
       </Swiper>
 
-      {/* Removido styled-jsx. Use <style> padrão ou mova para um .css importado. */}
+      {/* REMOVIDO jsx/global: usar style comum no React */}
       <style>{`
         .categories-swiper .swiper-pagination {
           bottom: -40px !important;

@@ -29,6 +29,36 @@ import {
 
 const CATEGORIES_CACHE_KEY = 'pcsc_categories_cache';
 
+// Normaliza o shape vindo do backend (/prompts)
+// Esta função converte campos em português (ex.: titulo, descricao, categoria)
+// para os nomes esperados pelo frontend (title, description, category). Também
+// lida com likes/comments vindos no `_count`.
+const normalizePrompt = (p) => ({
+  id: p.id,
+  // fallback to 'titulo' if 'title' is missing
+  title: p.title ?? p.titulo ?? 'Sem título',
+  description: p.description ?? p.descricao ?? '',
+  category: p.category ?? p.categoria ?? '—',
+  tags: Array.isArray(p.tags) ? p.tags : [],
+  // some APIs return 'views', others 'visualizacoes'
+  views: Number(p.views ?? p.visualizacoes ?? 0),
+  likes: Number(
+    p.likes ??
+    (p._count ? p._count.curtidas : undefined) ??
+    0
+  ),
+  comments: Number(
+    p.comments ??
+    (p._count ? p._count.comentarios : undefined) ??
+    0
+  ),
+  createdAt: p.createdAt ?? p.criado_em ?? p.atualizado_em ?? new Date().toISOString(),
+  // unify author fields (some APIs return `author`, others `autor`)
+  author: p.author ??
+    (p.autor ? { id: p.autor.id, name: p.autor.nome, avatar: p.autor.avatar } : undefined),
+  isLiked: !!p.isLiked,
+});
+
 const Prompts = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -58,39 +88,51 @@ const Prompts = () => {
   const [categoriesLoading, setCategoriesLoading] = useState(categories.length === 0);
 
   // PROMPTS
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setFiltersLoading((prev) => (loading ? prev : true));
-      try {
-        const params = { page, limit: 10, sort: sortBy };
-        if (searchTerm) params.search = searchTerm;
-        if (selectedCategory) params.category = selectedCategory;
+useEffect(() => {
+  let cancelled = false;
+  const load = async () => {
+    setFiltersLoading((prev) => (loading ? prev : true));
+    try {
+      const params = { page, limit: 10, sort: sortBy };
+      if (searchTerm) params.search = searchTerm;
+      if (selectedCategory) params.category = selectedCategory;
 
-        const response = await promptsAPI.getAll(params);
-        if (cancelled) return;
 
-        const apiPrompts = response?.data?.prompts || [];
-        // aplica isLiked localmente (não mexe no contador aqui)
-        const withLocalLiked = mergeIsLikedInList(apiPrompts);
-        setPrompts(withLocalLiked);
-        setTotalPages(response?.data?.pagination?.pages || 1);
-      } catch (_err) {
-        if (cancelled) return;
-        setPrompts([]);
-        setTotalPages(1);
-      } finally {
-        if (cancelled) return;
-        setLoading(false);
-        setFiltersLoading(false);
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, selectedCategory, sortBy, page]);
+    const response = await promptsAPI.getAll(params, { meta: { noRedirectOn401: true } });
+    if (cancelled) return;
+
+     // Aceita tanto { prompts: [...] } quanto um array direto [...]
+    const raw = Array.isArray(response?.data)
+       ? response.data
+       : (response?.data?.prompts || []);
+
+     const normalized = (raw || []).map(normalizePrompt);
+     const withLocalLiked = mergeIsLikedInList(normalized);
+     // soma o delta local de likes ao contador vindo do servidor
+     const withDeltaLikes = withLocalLiked.map((p) => ({
+       ...p,
+       likes: (Number(p.likes) || 0) + getLocalLikeDelta(p.id),
+     }));
+     setPrompts(withDeltaLikes);
+     setTotalPages(
+       Array.isArray(response?.data) ? 1 : (response?.data?.pagination?.pages || 1)
+     );
+    } catch (err) {
+     console.error('Erro ao buscar /prompts:', err?.response?.status, err?.response?.data || err?.message);
+      if (cancelled) return;
+      setPrompts([]);
+      setTotalPages(1);
+    } finally {
+      if (cancelled) return;
+      setLoading(false);
+      setFiltersLoading(false);
+    }
+  };
+  load();
+  return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [searchTerm, selectedCategory, sortBy, page]);
+
 
   // CATEGORIAS (cacheadas)
   useEffect(() => {
@@ -144,6 +186,9 @@ const Prompts = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // (normalizePrompt is declared above)
+
 
   const updateSearchParams = (params) => {
     const newParams = new URLSearchParams(searchParams);
@@ -474,7 +519,9 @@ const Prompts = () => {
                     const isLiked = !!(prompt?.isLiked || hasLikedPrompt(prompt.id));
                     const comments = Number(prompt?.comments ?? 0);
                     const createdAt = prompt?.createdAt ?? prompt?.criado_em ?? new Date().toISOString();
-                    const authorName = prompt?.author?.name ?? prompt?.usuarios?.nome ?? 'Usuário';
+                    // Combine possible fields for author name: prefer `author.name`, fallback to
+                    // `usuarios.nome` or `autor.nome`, and then default to 'Usuário'.
+                    const authorName = prompt?.author?.name ?? prompt?.usuarios?.nome ?? prompt?.autor?.nome ?? 'Usuário';
 
                     return (
                       <Card key={prompt.id} className="hover:shadow-lg transition-all duration-300 group">

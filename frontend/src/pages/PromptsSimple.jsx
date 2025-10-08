@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Plus, Eye, ThumbsUp, MessageCircle, Clock, User, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -6,9 +6,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import api, { promptsAPI } from '@/lib/api';
+import { promptsAPI } from '@/lib/api';
 import { toast } from 'sonner';
-import { hasLikedPrompt, markLikedPrompt, mergeIsLikedInList } from '@/utils/likesStore';
+import { hasLikedPrompt, markLikedPrompt, mergeIsLikedInList, getLocalLikeDelta } from '@/utils/likesStore';
 
 const PromptsSimple = () => {
   const { isAuthenticated } = useAuth();
@@ -27,33 +27,33 @@ const PromptsSimple = () => {
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // cancelamento axios
-  const cancelRef = useRef(null);
-
+  // Simplified fetch: use promptsAPI.getAll for consistent behaviour
+  // Fetch prompts from the backend. We do not abort previous requests
+  // because axios handles concurrency gracefully, and the number of calls
+  // here is small. If search/category changes quickly, only the latest
+  // response will be displayed.
   const fetchPrompts = async ({ search, category }) => {
     try {
-      // cancela request anterior se houver
-      if (cancelRef.current) {
-        cancelRef.current.abort();
-      }
-      const controller = new AbortController();
-      cancelRef.current = controller;
-
       setLoading(true);
-
       const params = { limit: 20 };
       if (search) params.search = search;
       if (category) params.category = category;
-
-      // Usamos api.get direto para suportar AbortController (signal)
-      const resp = await api.get('/prompts', { params, signal: controller.signal });
-      const data = resp?.data?.prompts || resp?.data?.items || resp?.data || [];
+      // Use promptsAPI.getAll to automatically include noRedirectOn401 meta
+      // and normalise responses.
+      const resp = await promptsAPI.getAll(params);
+      // Accept { prompts: [...] } or an array directly
+      const data = Array.isArray(resp?.data)
+        ? resp.data
+        : resp?.data?.prompts || resp?.data?.items || resp?.data || [];
+      // inject isLiked local state
       const withLocalLiked = mergeIsLikedInList(data);
-      setPrompts(withLocalLiked);
+      // add local like delta to likes counter
+      const withDeltaLikes = withLocalLiked.map((p) => ({
+        ...p,
+        likes: (Number(p.likes) || 0) + getLocalLikeDelta(p.id),
+      }));
+      setPrompts(withDeltaLikes);
     } catch (error) {
-      // ignorar se foi cancelado
-      if (error?.name === 'CanceledError' || error?.message === 'canceled' || error?.code === 'ERR_CANCELED') return;
-
       console.error('Erro ao buscar prompts:', error);
       const status = error?.response?.status;
       if (status === 429) {
@@ -70,7 +70,7 @@ const PromptsSimple = () => {
   useEffect(() => {
     fetchPrompts({ search: debouncedSearch, category: selectedCategory });
     return () => {
-      if (cancelRef.current) cancelRef.current.abort();
+      // no-op: previous requests are not aborted because we now use a simplified fetch
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, selectedCategory]);

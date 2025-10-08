@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { hasLikedPrompt, markLikedPrompt, getLocalLikeDelta } from '@/utils/likesStore';
 import { formatTimeAgo } from '@/utils/time';
@@ -140,6 +140,9 @@ const VisualizarPrompt = () => {
 
   const [currentUser, setCurrentUser] = useState(null);
 
+  // Ref para evitar chamadas duplicadas no modo Strict do React
+  const fetchedRef = useRef(false);
+
   const applyLocalLikeState = (normalized) => {
     const delta = getLocalLikeDelta(normalized.id); // 0 ou 1 no nosso caso
     const alreadyLiked = hasLikedPrompt(normalized.id);
@@ -202,8 +205,13 @@ const VisualizarPrompt = () => {
       setLoading(false);
       return;
     }
-    fetchPrompt(promptId);
-    fetchMe();
+    // Em ambientes de desenvolvimento com React Strict Mode, useEffect pode disparar duas vezes.
+    // Usamos uma ref para garantir que a busca seja feita apenas uma vez.
+    if (!fetchedRef.current) {
+      fetchedRef.current = true;
+      fetchPrompt(promptId);
+      fetchMe();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptId]);
 

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { authAPI } from '@/lib/api';
@@ -20,20 +20,20 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const ran = useRef(false); // evita chamada dupla no Strict Mode
 
   // Ao iniciar, tenta recuperar o usuário atual usando o token salvo.
   useEffect(() => {
+    if (ran.current) return;
+    ran.current = true;
+
     const initAuth = async () => {
       try {
         const response = await authAPI.getMeOptional();
-        const fetchedUser = response?.data?.user;
-        if (fetchedUser) {
-          setUser(fetchedUser);
-        } else {
-          setUser(null);
-        }
-      // eslint-disable-next-line no-unused-vars
-      } catch (_err) {
+        // getMeOptional pode retornar null em caso de 401/429
+        const fetchedUser = response?.data?.user ?? response?.user ?? null;
+        setUser(fetchedUser || null);
+      } catch {
         setUser(null);
       } finally {
         setLoading(false);

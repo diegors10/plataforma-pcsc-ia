@@ -1,30 +1,36 @@
 import prisma from '../config/database.js';
 
+// Helper to convert BigInt values to regular numbers
 const toNum = (v) => (typeof v === 'bigint' ? Number(v) : v);
 
-// Serializa objetos vindos do Prisma convertendo BigInt => Number (recursivo)
+// Deeply converts any BigInt values in an object to Numbers so JSON serialization works
 function serializeBigInt(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return Number(obj);
   if (Array.isArray(obj)) return obj.map(serializeBigInt);
   if (typeof obj === 'object') {
     const out = {};
-    for (const k of Object.keys(obj)) out[k] = serializeBigInt(obj[k]);
+    for (const key of Object.keys(obj)) out[key] = serializeBigInt(obj[key]);
     return out;
   }
   return obj;
 }
 
-// Dashboard (corrige erro 500 causado por BigInt no JSON)
+/**
+ * GET /api/stats/dashboard
+ * Returns aggregated statistics for the dashboard, including totals,
+ * top prompts, categories and recent activities. Converts all BigInt
+ * values to numbers to avoid JSON serialization errors.
+ */
 export const getDashboardStats = async (req, res) => {
   try {
-    // Totais
+    // Compute total prompts and active users
     const [totalPrompts, totalActiveUsers] = await Promise.all([
-      prisma.prompts.count(), // total geral
+      prisma.prompts.count(),
       prisma.usuarios.count({ where: { esta_ativo: true } }),
     ]);
 
-    // Top 3 prompts por visualizações (mantendo visíveis/aprovados na Home)
+    // Top 3 prompts by view count (only public and approved)
     const topPromptsRaw = await prisma.prompts.findMany({
       where: { e_publico: true, foi_aprovado: true },
       orderBy: { visualizacoes: 'desc' },
@@ -35,18 +41,19 @@ export const getDashboardStats = async (req, res) => {
         descricao: true,
         categoria: true,
         visualizacoes: true,
-        autor: { select: { id: true, nome: true, avatar: true, cargo: true } },
+        autor: {
+          select: { id: true, nome: true, avatar: true, cargo: true },
+        },
         _count: { select: { curtidas: true, comentarios: true } },
       },
     });
-
     const topPrompts = topPromptsRaw.map((p) => ({
       ...serializeBigInt(p),
       likes: p._count.curtidas,
       comments: p._count.comentarios,
     }));
 
-    // Categorias/Especialidades
+    // Categories with prompt counts
     const categoriesRaw = await prisma.especialidades.findMany({
       select: {
         id: true,
@@ -57,13 +64,12 @@ export const getDashboardStats = async (req, res) => {
       },
       orderBy: { nome: 'asc' },
     });
-
     const categories = categoriesRaw.map((c) => ({
       ...serializeBigInt(c),
       totalPrompts: c._count.prompts,
     }));
 
-    // Atividades recentes (somente ações de usuários autenticados): novos prompts e comentários
+    // Recent prompts and comments for the activity feed (limit 20 each)
     const [latestPromptsRaw, latestCommentsRaw] = await Promise.all([
       prisma.prompts.findMany({
         orderBy: { criado_em: 'desc' },
@@ -88,7 +94,7 @@ export const getDashboardStats = async (req, res) => {
         },
       }),
     ]);
-
+    // Build activity objects with unified structure
     const activities = [
       ...latestPromptsRaw
         .filter((p) => p.autor)
@@ -119,18 +125,23 @@ export const getDashboardStats = async (req, res) => {
       totalPrompts,
       totalActiveUsers,
       topPrompts,
-      featuredPrompts: topPrompts,      // alias
+      featuredPrompts: topPrompts,
       categories,
-      featuredCategories: categories,   // alias
+      featuredCategories: categories,
       recentActivities: serializeBigInt(activities),
     });
   } catch (err) {
     console.error('Erro em getDashboardStats:', err);
-    return res.status(500).json({ error: 'Erro ao carregar estatísticas do dashboard' });
+    return res
+      .status(500)
+      .json({ error: 'Erro ao carregar estatísticas do dashboard' });
   }
 };
 
-// Retorna estatísticas agregadas de prompts (endpoint legado)
+/**
+ * GET /api/stats/prompts
+ * Provides simple aggregated stats: total, public, approved and featured prompts.
+ */
 export const getPromptsStats = async (req, res) => {
   try {
     const [total, publicCount, approvedCount, featuredCount] = await Promise.all([
@@ -139,20 +150,24 @@ export const getPromptsStats = async (req, res) => {
       prisma.prompts.count({ where: { foi_aprovado: true } }),
       prisma.prompts.count({ where: { e_destaque: true } }),
     ]);
-
     return res.json({
-      total,
+      total: total,
       public: publicCount,
       approved: approvedCount,
       featured: featuredCount,
     });
   } catch (err) {
     console.error('Erro em getPromptsStats:', err);
-    return res.status(500).json({ error: 'Erro ao carregar estatísticas de prompts' });
+    return res
+      .status(500)
+      .json({ error: 'Erro ao carregar estatísticas de prompts' });
   }
 };
 
-// Lista categorias/especialidades com contagem de prompts (para carrossel dinâmico)
+/**
+ * GET /api/stats/categories
+ * Returns the list of categories (especialidades) with the number of prompts in each.
+ */
 export const getCategoriesStats = async (req, res) => {
   try {
     const rows = await prisma.especialidades.findMany({
@@ -165,7 +180,6 @@ export const getCategoriesStats = async (req, res) => {
       },
       orderBy: { nome: 'asc' },
     });
-
     const data = rows.map((c) => ({
       id: typeof c.id === 'bigint' ? Number(c.id) : c.id,
       nome: c.nome,
@@ -173,7 +187,6 @@ export const getCategoriesStats = async (req, res) => {
       cor: c.cor,
       totalPrompts: c._count.prompts,
     }));
-
     return res.json(data);
   } catch (err) {
     console.error('Erro em getCategoriesStats:', err);

@@ -185,9 +185,13 @@ const CommentsSection = ({ promptId }) => {
   // A formatação de tempo agora vem do util compartilhado (formatTimeAgo)
 
   const canEditComment = (comment) => {
-    return isAuthenticated && user && (
-      String(user.id) === String(comment.usuarios?.id) || 
-      user.e_moderador
+    return (
+      isAuthenticated &&
+      user &&
+      (
+        String(user.id) === String(comment.autor?.id || comment.usuarios?.id) ||
+        user.e_moderador
+      )
     );
   };
 
@@ -273,21 +277,21 @@ const CommentsSection = ({ promptId }) => {
             comments.map((comment) => (
               <div key={comment.id} className="border-l-2 border-muted pl-4 space-y-3">
                 <div className="flex items-start space-x-3">
-                  <UserAvatar user={comment.usuarios} size="md" />
+                  <UserAvatar user={comment.autor || comment.usuarios} size="md" />
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <span className="font-medium text-foreground">
-                          {comment.usuarios?.nome || 'Usuário'}
+                          {comment.autor?.nome || comment.usuarios?.nome || 'Usuário'}
                         </span>
-                        {comment.usuarios?.cargo && (
+                        {(comment.autor?.cargo || comment.usuarios?.cargo) && (
                           <Badge variant="outline" className="text-xs">
-                            {comment.usuarios.cargo}
+                            {comment.autor?.cargo || comment.usuarios?.cargo}
                           </Badge>
                         )}
                         <span className="text-sm text-muted-foreground flex items-center">
                           <Clock className="h-3 w-3 mr-1" />
-                          {formatTimeAgo(comment.criado_em)}
+                          {formatTimeAgo(comment.criado_em || comment.criadoEm)}
                         </span>
                       </div>
                       
