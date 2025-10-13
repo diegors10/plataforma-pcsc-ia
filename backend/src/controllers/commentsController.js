@@ -5,6 +5,8 @@ const toBig = (v) => (v === null || v === undefined ? v : BigInt(v));
 function serializeBigInt(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return Number(obj);
+  // AJUSTE GPT: não converte objetos Date para evitar perda de informação
+  if (obj instanceof Date) return obj;
   if (Array.isArray(obj)) return obj.map(serializeBigInt);
   if (typeof obj === 'object') {
     const out = {};

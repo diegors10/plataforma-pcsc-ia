@@ -6,6 +6,8 @@ const toNum = (v) => (typeof v === 'bigint' ? Number(v) : v);
 function serializeBigInt(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return Number(obj);
+  // AJUSTE GPT: mantém objetos Date sem alterar
+  if (obj instanceof Date) return obj;
   if (Array.isArray(obj)) return obj.map(serializeBigInt);
   if (typeof obj === 'object') {
     const out = {};
@@ -225,6 +227,8 @@ export const createPrompt = async (req, res) => {
       e_publico = true,
     } = req.body;
 
+    // Inclui foi_aprovado: true para permitir que novos prompts fiquem visíveis
+    // imediatamente sem depender de moderação manual.
     const prompt = await prisma.prompts.create({
       data: {
         titulo,
@@ -234,6 +238,8 @@ export const createPrompt = async (req, res) => {
         tags: Array.isArray(tags) ? tags : [],
         especialidade_id: especialidade_id ? toBig(especialidade_id) : null,
         e_publico,
+        // AJUSTE GPT: define aprovação automática para novos prompts
+        foi_aprovado: true,
         autor_id: toBig(req.user.id),
       },
       select: {

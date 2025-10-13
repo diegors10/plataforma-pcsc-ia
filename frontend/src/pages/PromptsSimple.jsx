@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Plus, Eye, ThumbsUp, MessageCircle, Clock, User, Loader2, AlertCircle } from 'lucide-react';
+// AJUSTE GPT: importa Switch para toggle "Meus prompts"
+import { Switch } from '@/components/ui/switch';
+// AJUSTE GPT: importa specialtiesAPI para carregar categorias
+import { specialtiesAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
@@ -8,10 +12,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { promptsAPI } from '@/lib/api';
 import { toast } from 'sonner';
+// Importa util de tempo para formatar datas de forma consistente
+import { formatTimeAgo } from '@/utils/time';
 import { hasLikedPrompt, markLikedPrompt, mergeIsLikedInList, getLocalLikeDelta } from '@/utils/likesStore';
 
 const PromptsSimple = () => {
-  const { isAuthenticated } = useAuth();
+  // AJUSTE GPT: também precisamos do usuário logado para filtrar "Meus prompts"
+  const { isAuthenticated, user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [prompts, setPrompts] = useState([]);
@@ -19,6 +26,16 @@ const PromptsSimple = () => {
 
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
+
+  // AJUSTE GPT: filtro "Meus prompts" baseado no parâmetro 'author'
+  const [onlyMine, setOnlyMine] = useState(() => {
+    const param = searchParams.get('author');
+    return !!param;
+  });
+
+  // AJUSTE GPT: categorias carregadas do backend para filtro
+  const [categories, setCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
 
   // debounce
   const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
@@ -32,12 +49,14 @@ const PromptsSimple = () => {
   // because axios handles concurrency gracefully, and the number of calls
   // here is small. If search/category changes quickly, only the latest
   // response will be displayed.
-  const fetchPrompts = async ({ search, category }) => {
+  const fetchPrompts = async ({ search, category, author }) => {
     try {
       setLoading(true);
       const params = { limit: 20 };
       if (search) params.search = search;
       if (category) params.category = category;
+      // AJUSTE GPT: adiciona o parâmetro author quando filtrando "Meus prompts"
+      if (author) params.author = author;
       // Use promptsAPI.getAll to automatically include noRedirectOn401 meta
       // and normalise responses.
       const resp = await promptsAPI.getAll(params);
@@ -67,13 +86,18 @@ const PromptsSimple = () => {
     }
   };
 
+  // AJUSTE GPT: recarrega prompts quando termo de busca, categoria, onlyMine ou usuário mudarem
   useEffect(() => {
-    fetchPrompts({ search: debouncedSearch, category: selectedCategory });
+    fetchPrompts({
+      search: debouncedSearch,
+      category: selectedCategory,
+      author: onlyMine && user?.id ? user.id : undefined,
+    });
     return () => {
-      // no-op: previous requests are not aborted because we now use a simplified fetch
+      // no-op: não abortamos requisições anteriores nesta versão simplificada
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, selectedCategory]);
+  }, [debouncedSearch, selectedCategory, onlyMine, user?.id]);
 
   const handleSearch = (value) => {
     setSearchTerm(value);
@@ -90,6 +114,55 @@ const PromptsSimple = () => {
     else next.delete('category');
     setSearchParams(next);
   };
+
+  // AJUSTE GPT: ativa ou desativa filtro "Meus prompts" e atualiza URL
+  const handleOnlyMineChange = (checked) => {
+    setOnlyMine(checked);
+    const next = new URLSearchParams(searchParams);
+    if (checked && user?.id) {
+      next.set('author', user.id);
+    } else {
+      next.delete('author');
+    }
+    setSearchParams(next);
+  };
+
+  // AJUSTE GPT: carrega categorias do backend (especialidades) para filtros
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        setCategoriesLoading(true);
+        const resp = await specialtiesAPI.getAll({ all: true });
+        const items = resp?.data?.specialties || resp?.data || [];
+        const list = items.map((s) => {
+          const name = s?.nome ?? s?.name ?? s?.titulo ?? '';
+          const count =
+            s?._count?.prompts ??
+            s?.promptsCount ??
+            s?.total_prompts ??
+            s?.totalPrompts ??
+            0;
+          return { name: String(name), count: Number(count) };
+        });
+        const seen = new Set();
+        const uniq = [];
+        for (const it of list) {
+          if (!it.name) continue;
+          if (seen.has(it.name)) continue;
+          seen.add(it.name);
+          uniq.push(it);
+        }
+        uniq.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+        setCategories(uniq);
+      } catch (err) {
+        console.error('Erro ao carregar categorias:', err);
+        setCategories([]);
+      } finally {
+        setCategoriesLoading(false);
+      }
+    };
+    loadCategories();
+  }, []);
 
   const handleLike = async (promptId) => {
     const target = prompts.find((p) => p.id === promptId);
@@ -114,16 +187,9 @@ const PromptsSimple = () => {
     }
   };
 
-  const formatTimeAgo = (dateString) => {
-    const now = new Date();
-    const date = new Date(dateString);
-    const diffInHours = Math.floor((now - date) / (1000 * 60 * 60));
-    if (diffInHours < 1) return 'Agora mesmo';
-    if (diffInHours < 24) return `${diffInHours}h atrás`;
-    const diffInDays = Math.floor(diffInHours / 24);
-    if (diffInDays < 7) return `${diffInDays}d atrás`;
-    return new Date(dateString).toLocaleDateString('pt-BR');
-  };
+  // Anteriormente havia uma implementação local de formatTimeAgo. Agora utilizamos
+  // a função centralizada em utils/time para garantir consistência e tratamento de
+  // datas inválidas. Ver @/utils/time.js
 
   return (
     <div className="min-h-screen bg-background">
@@ -154,6 +220,57 @@ const PromptsSimple = () => {
               onChange={(e) => handleSearch(e.target.value)}
               className="pl-10"
             />
+          </div>
+          {/* AJUSTE GPT: filtros de categoria e "Meus prompts" */}
+          <div className="flex flex-wrap items-center gap-2 py-3 mt-4">
+            {/* Botão para todas as categorias */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleCategoryFilter('')}
+              className={`shrink-0 ${selectedCategory === '' ? 'bg-accent/20 text-accent border-accent' : ''}`}
+            >
+              Todas
+            </Button>
+            {categoriesLoading && categories.length === 0 ? (
+              <>
+                <div className="h-8 w-20 bg-muted rounded-md animate-pulse shrink-0" />
+                <div className="h-8 w-24 bg-muted rounded-md animate-pulse shrink-0" />
+              </>
+            ) : (
+              (categories || []).map((cat) => {
+                const label = cat?.name ?? '';
+                if (!label) return null;
+                const active = selectedCategory === label;
+                return (
+                  <Button
+                    key={label}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleCategoryFilter(label)}
+                    className={`shrink-0 ${active ? 'bg-accent/20 text-accent border-accent' : ''}`}
+                  >
+                    {label}
+                  </Button>
+                );
+              })
+            )}
+            {/* Filtro "Meus prompts" */}
+            {user?.id && (
+              <div className="flex items-center gap-2 ml-4">
+                <Switch
+                  id="toggle-only-mine-simple"
+                  checked={onlyMine}
+                  onCheckedChange={handleOnlyMineChange}
+                />
+                <label
+                  htmlFor="toggle-only-mine-simple"
+                  className="text-sm text-muted-foreground select-none"
+                >
+                  Meus prompts
+                </label>
+              </div>
+            )}
           </div>
         </div>
 
@@ -191,6 +308,19 @@ const PromptsSimple = () => {
               const createdAt = prompt?.createdAt ?? prompt?.criado_em ?? new Date().toISOString();
               const authorName = prompt?.author?.name ?? prompt?.usuarios?.nome ?? 'Usuário';
 
+              // AJUSTE GPT: calcula as iniciais do autor para substituir o ícone genérico
+              const getInitials = (name) => {
+                if (!name) return '';
+                const parts = String(name).trim().split(/\s+/);
+                if (parts.length === 1) {
+                  return parts[0].slice(0, 2).toUpperCase();
+                }
+                const first = parts[0][0] ?? '';
+                const second = parts[1][0] ?? '';
+                return `${first}${second}`.toUpperCase();
+              };
+              const initials = getInitials(authorName);
+
               return (
                 <Card key={prompt.id} className="hover:shadow-lg transition-all duration-300 group cursor-pointer">
                   <CardContent className="p-6">
@@ -226,7 +356,8 @@ const PromptsSimple = () => {
                       <div className="flex items-center space-x-4">
                         <div className="flex items-center">
                           <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center mr-2">
-                            <User className="h-4 w-4 text-muted-foreground" />
+                            {/* AJUSTE GPT: mostra as iniciais do autor em vez de ícone de usuário */}
+                            <span className="text-sm font-medium text-accent">{initials}</span>
                           </div>
                           <div>
                             <p className="text-sm font-medium text-foreground">{authorName}</p>

@@ -154,9 +154,9 @@ const NovoPrompt = () => {
       };
       await promptsAPI.create(payload);
 
+      // AJUSTE GPT: removido className custom para usar cores padrão definidas no Toaster
       toast.success('Prompt criado com sucesso!', {
         description: 'Seu prompt foi publicado e está disponível para a comunidade.',
-        className: 'bg-green-500 text-white',
       });
       navigate('/prompts');
     } catch (error) {

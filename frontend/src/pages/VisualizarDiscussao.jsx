@@ -31,6 +31,9 @@ import {
 } from '@/utils/postLikesStore';
 import { toast } from 'sonner';
 
+// AJUSTE GPT: importa util de formatação de data consistente
+import { formatDateTime } from '@/utils/time';
+
 // Página para visualizar uma discussão específica e suas postagens
 const VisualizarDiscussao = () => {
   const { id } = useParams();
@@ -97,7 +100,8 @@ const VisualizarDiscussao = () => {
         setPosts(mergedPosts);
       } catch (err) {
         console.error('Erro ao carregar discussão', err);
-        toast.error('Erro ao carregar discussão.', { className: 'bg-red-500 text-white' });
+        // AJUSTE GPT: Removido className personalizado para usar cores padrão definidas no Toaster
+        toast.error('Erro ao carregar discussão.');
       } finally {
         setLoading(false);
       }
@@ -105,15 +109,7 @@ const VisualizarDiscussao = () => {
     fetchData();
   }, [id]);
 
-  const formatDateTime = (dateString) => {
-    return new Date(dateString).toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  // NOTE: Removido formatDateTime local; utiliza-se util importado
 
   // Criar nova postagem
   const handleCreatePost = async (e) => {

@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { discussionsAPI } from '@/lib/api';
 import { Switch } from '@/components/ui/switch';
+import { formatTimeAgo } from '@/utils/time';
 
 const Discussoes = () => {
   const [discussions, setDiscussions] = useState([]);
@@ -144,19 +145,7 @@ const Discussoes = () => {
     }
   };
 
-  const formatTimeAgo = (dateString) => {
-    const now = new Date();
-    const date = new Date(dateString);
-    const diffInHours = Math.floor((now - date) / (1000 * 60 * 60));
-    
-    if (diffInHours < 1) return 'Agora mesmo';
-    if (diffInHours < 24) return `${diffInHours}h atrás`;
-    
-    const diffInDays = Math.floor(diffInHours / 24);
-    if (diffInDays < 7) return `${diffInDays}d atrás`;
-    
-    return new Date(dateString).toLocaleDateString('pt-BR');
-  };
+  // formatTimeAgo é importado de '@/utils/time'; ele lida com datas inválidas e formata data/hora
 
   return (
     <div className="min-h-screen bg-background">

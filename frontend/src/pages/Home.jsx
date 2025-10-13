@@ -3,17 +3,13 @@ import { Link } from 'react-router-dom';
 import { 
   ArrowRight, 
   Brain, 
-  FileText, 
   Shield, 
-  Search, 
   Users, 
   TrendingUp,
   Clock,
   Eye,
   MessageCircle,
   ThumbsUp,
-  Database,
-  Gavel,
   Globe,
   BookOpen,
   Plus,
@@ -38,25 +34,8 @@ const Home = () => {
   const { isAuthenticated } = useAuth();
   const ran = useRef(false); // evita chamadas duplicadas (Strict Mode)
 
-  const categoryIcons = {
-    'Investigação Digital': Database,
-    'Análise Criminal': Search,
-    'Documentação': FileText,
-    'Direito Penal': Gavel,
-    'Segurança Pública': Shield,
-    'Inteligência': Brain,
-    'Perícia': BookOpen
-  };
-
-  const categoryColors = {
-    'Investigação Digital': 'bg-blue-500',
-    'Análise Criminal': 'bg-green-500',
-    'Documentação': 'bg-purple-500',
-    'Direito Penal': 'bg-red-500',
-    'Segurança Pública': 'bg-yellow-500',
-    'Inteligência': 'bg-indigo-500',
-    'Perícia': 'bg-orange-500'
-  };
+  // O mapeamento categoryIcons/categoryColors foi movido para o componente
+  // CategoriesCarousel; mantenha esta página enxuta.
 
   useEffect(() => {
     if (ran.current) return;
@@ -65,72 +44,105 @@ const Home = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        // Buscar estatísticas do dashboard
+        // Buscar estatísticas do dashboard. O endpoint retorna campos de nível superior
+        // como totalPrompts, totalActiveUsers, topPrompts, categories e recentActivities.
         const dashboardRes = await statsAPI.getDashboard();
-        const dashboardData = dashboardRes?.data ?? dashboardRes ?? {};
+        const dashboardData = dashboardRes?.data ?? {};
 
-        // Definir estatísticas (prompts compartilhados e usuários ativos)
+        // Ajustar estatísticas gerais (prompts compartilhados e usuários ativos)
         setStats({
-          totalPrompts: dashboardData.stats?.totalPrompts || 0,
-          totalUsers: dashboardData.stats?.totalUsers || 0
+          totalPrompts: Number(dashboardData.totalPrompts ?? dashboardData.totals?.prompts ?? 0),
+          totalUsers: Number(dashboardData.totalActiveUsers ?? dashboardData.totals?.activeUsers ?? 0),
         });
 
-        // Definir categorias de destaque
+        // Definir categorias (especialidades) retornadas pelo backend
         setCategories(Array.isArray(dashboardData.categories) ? dashboardData.categories : []);
 
-        // Obter prompts em destaque (top 3 mais visualizados). Caso venham mais, recortar aqui.
-        const topPrompts = Array.isArray(dashboardData.topPrompts)
-          ? dashboardData.topPrompts.slice(0, 3)
+        // Obter prompts em destaque: prioriza mais curtidos; se todos sem curtidas, usa mais visualizados
+        try {
+          // buscar top 3 mais curtidos
+          const respPopular = await promptsAPI.getAll({ page: 1, limit: 3, sort: 'popular' }, { meta: { noRedirectOn401: true } });
+          const popularList = Array.isArray(respPopular?.data?.prompts)
+            ? respPopular.data.prompts
+            : Array.isArray(respPopular?.data) ? respPopular.data : [];
+          // normaliza lista
+          let list = (popularList || []).map((p) => ({
+            id: p.id,
+            title: p.titulo ?? p.title ?? '—',
+            description: p.descricao ?? p.description ?? '',
+            author: { name: p.autor?.nome ?? p.author?.name ?? 'Usuário' },
+            views: Number(p.visualizacoes ?? p.views ?? 0),
+            likes: Number(p._count?.curtidas ?? p.likes ?? 0),
+            comments: Number(p._count?.comentarios ?? p.comments ?? 0),
+            category: p.categoria ?? p.category ?? '—',
+          }));
+          // verifica se todos possuem zero curtidas
+          const totalLikes = list.reduce((sum, it) => sum + (Number(it.likes) || 0), 0);
+          if (totalLikes === 0) {
+            // fallback para mais visualizados
+            const respViews = await promptsAPI.getAll({ page: 1, limit: 3, sort: 'views' }, { meta: { noRedirectOn401: true } });
+            const viewsList = Array.isArray(respViews?.data?.prompts)
+              ? respViews.data.prompts
+              : Array.isArray(respViews?.data) ? respViews.data : [];
+            list = (viewsList || []).map((p) => ({
+              id: p.id,
+              title: p.titulo ?? p.title ?? '—',
+              description: p.descricao ?? p.description ?? '',
+              author: { name: p.autor?.nome ?? p.author?.name ?? 'Usuário' },
+              views: Number(p.visualizacoes ?? p.views ?? 0),
+              likes: Number(p._count?.curtidas ?? p.likes ?? 0),
+              comments: Number(p._count?.comentarios ?? p.comments ?? 0),
+              category: p.categoria ?? p.category ?? '—',
+            }));
+          }
+          setFeaturedPrompts(list);
+        } catch (e) {
+          console.error('Erro ao carregar prompts em destaque:', e);
+          setFeaturedPrompts([]);
+        }
+
+        // Processar atividades recentes. O backend retorna um array simples em recentActivities
+        const activitiesRaw = Array.isArray(dashboardData.recentActivities)
+          ? dashboardData.recentActivities
           : [];
-        const adaptedFeatured = topPrompts.map((p) => ({
-          id: p.id,
-          title: p.titulo || p.title,
-          description: '',
-          author: { name: p.usuarios?.nome || 'Usuário' },
-          views: p.visualizacoes || 0,
-          likes: 0,
-          comments: 0,
-          category: p.categoria || p.category
-        }));
-        setFeaturedPrompts(adaptedFeatured);
-
-        // Processar atividades recentes
-        let activities = [];
-        if (dashboardData.recentActivities?.prompts) {
-          dashboardData.recentActivities.prompts.forEach((prompt) => {
-            activities.push({
-              user: prompt.usuarios?.nome || 'Usuário',
-              action: 'adicionou um novo prompt',
-              item: prompt.titulo,
-              time: new Date(prompt.criado_em),
-              type: 'prompt'
-            });
+        const adaptedActivities = activitiesRaw
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+          .slice(0, 4)
+          .map((act) => {
+            // AJUSTE GPT: loga o tipo e valor do campo createdAt recebido das atividades
+            try {
+              console.log('Home.jsx recent activity createdAt:', act.createdAt, 'type:', typeof act.createdAt);
+            } catch {}
+            const userName = act.user?.nome ?? act.user?.name ?? 'Usuário';
+            let action;
+            let item;
+            if (act.type === 'prompt') {
+              action = 'criou o prompt';
+              item = act.title ?? 'Prompt';
+            } else if (act.type === 'comment') {
+              action = 'comentou';
+              // para comentários associamos ao conteúdo ou indicamos genericamente
+              item = act.content ? act.content.slice(0, 30) + '…' : 'comentário';
+            } else {
+              action = 'realizou uma atividade em';
+              item = act.title ?? act.content ?? 'item';
+            }
+            return {
+              user: userName,
+              action,
+              item,
+              time: new Date(act.createdAt),
+              timeLabel: formatTimeAgo(act.createdAt),
+              type: act.type,
+            };
           });
-        }
-        if (dashboardData.recentActivities?.comments) {
-          dashboardData.recentActivities.comments.forEach((comment) => {
-            activities.push({
-              user: comment.usuarios?.nome || 'Usuário',
-              action: 'comentou em',
-              item: comment.prompts?.titulo || 'Prompt',
-              time: new Date(comment.criado_em),
-              type: 'comment'
-            });
-          });
-        }
-
-        // Ordenar e limitar
-        activities.sort((a, b) => b.time - a.time);
-        const adaptedActivities = activities.slice(0, 4).map((act) => ({
-          ...act,
-          timeLabel: formatTimeAgo(act.time),
-        }));
         setRecentActivities(adaptedActivities);
       } catch (err) {
         console.error('Erro ao carregar dados da página inicial', err);
         setStats({ totalPrompts: 0, totalUsers: 0 });
         setCategories([]);
         setRecentActivities([]);
+        setFeaturedPrompts([]);
       } finally {
         setLoading(false);
       }
@@ -358,7 +370,20 @@ const Home = () => {
                     <CardContent className="p-4">
                       <div className="flex items-start space-x-4">
                         <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center group-hover:bg-accent/20 transition-colors duration-300">
-                          <Users className="h-5 w-5 text-accent group-hover:scale-110 transition-transform duration-300" />
+                          {/* AJUSTE GPT: exibe as iniciais do usuário no círculo em vez do ícone genérico */}
+                          {(() => {
+                            const name = activity.user || '';
+                            const parts = name.split(' ').filter(Boolean);
+                            // Se houver apenas um nome, pega as duas primeiras letras; caso contrário, pega a inicial dos dois primeiros nomes
+                            const initials = parts.length <= 1
+                              ? name.substring(0, 2)
+                              : parts.slice(0, 2).map((p) => p[0]).join('');
+                            return (
+                              <span className="text-accent font-semibold text-sm group-hover:scale-110 transition-transform duration-300">
+                                {initials.toUpperCase()}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div className="flex-1">
                           <p className="text-foreground">

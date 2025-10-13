@@ -27,6 +27,10 @@ import {
   getLocalLikeDelta, // <-- IMPORTADO
 } from '@/utils/likesStore';
 
+import { Switch } from '@/components/ui/switch';
+import { useAuth } from '@/contexts/AuthContext';
+import { formatTimeAgo } from '@/utils/time';
+
 const CATEGORIES_CACHE_KEY = 'pcsc_categories_cache';
 
 // Normaliza o shape vindo do backend (/prompts)
@@ -87,6 +91,13 @@ const Prompts = () => {
   });
   const [categoriesLoading, setCategoriesLoading] = useState(categories.length === 0);
 
+  // Mostra somente prompts criados pelo usuário logado
+  const { user } = useAuth();
+  const [onlyMine, setOnlyMine] = useState(() => {
+    const param = searchParams.get('author');
+    return !!param;
+  });
+
   // PROMPTS
 useEffect(() => {
   let cancelled = false;
@@ -96,6 +107,8 @@ useEffect(() => {
       const params = { page, limit: 10, sort: sortBy };
       if (searchTerm) params.search = searchTerm;
       if (selectedCategory) params.category = selectedCategory;
+      // AJUSTE GPT: filtrar por autor quando solicitado
+      if (onlyMine && user?.id) params.author = user.id;
 
 
     const response = await promptsAPI.getAll(params, { meta: { noRedirectOn401: true } });
@@ -130,8 +143,8 @@ useEffect(() => {
   };
   load();
   return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [searchTerm, selectedCategory, sortBy, page]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, selectedCategory, sortBy, page, onlyMine, user]);
 
 
   // CATEGORIAS (cacheadas)
@@ -247,23 +260,18 @@ useEffect(() => {
     setSearchParams({}, { replace: true });
   };
 
-  const formatDate = (dateString) =>
-    new Date(dateString).toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-
-  const formatTimeAgo = (dateString) => {
-    const now = new Date();
-    const date = new Date(dateString);
-    const diffInHours = Math.floor((now - date) / (1000 * 60 * 60));
-    if (diffInHours < 1) return 'Agora mesmo';
-    if (diffInHours < 24) return `${diffInHours}h atrás`;
-    const diffInDays = Math.floor(diffInHours / 24);
-    if (diffInDays < 7) return `${diffInDays}d atrás`;
-    return formatDate(dateString);
+  const handleOnlyMineChange = (checked) => {
+    setOnlyMine(checked);
+    setPage(1);
+    if (checked && user?.id) {
+      updateSearchParams({ author: user.id, page: 1 });
+    } else {
+      // remove author param
+      updateSearchParams({ author: '', page: 1 });
+    }
   };
+
+  // formatTimeAgo é importado de '@/utils/time' e já lida com pluralização e datas inválidas.
 
   const PromptSkeleton = () => (
     <Card className="animate-pulse">
@@ -408,6 +416,23 @@ useEffect(() => {
                       </Select>
                     </div>
 
+                    {/* Filtro "Meus prompts" no modal mobile */}
+                    {user?.id && (
+                      <div className="flex items-center space-x-3">
+                        <Switch
+                          id="mobile-toggle-mine"
+                          checked={onlyMine}
+                          onCheckedChange={handleOnlyMineChange}
+                        />
+                        <label
+                          htmlFor="mobile-toggle-mine"
+                          className="text-sm text-muted-foreground select-none"
+                        >
+                          Meus prompts
+                        </label>
+                      </div>
+                    )}
+
                     {(searchTerm || selectedCategory || sortBy !== 'recent') && (
                       <Button variant="outline" onClick={clearFilters} className="w-full">
                         <X className="h-4 w-4 mr-2" />
@@ -420,7 +445,7 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Linha 2: Chips de categorias (sempre visíveis) */}
+          {/* Linha 2: Chips de categorias (sempre visíveis) e filtro "Meus prompts" */}
           <div className="flex items-center gap-2 overflow-x-auto py-1">
             <Button
               variant={selectedCategory === '' ? 'secondary' : 'outline'}
@@ -454,6 +479,23 @@ useEffect(() => {
                   </Button>
                 );
               })
+            )}
+
+            {/* Filtro "Meus prompts" */}
+            {user?.id && (
+              <div className="flex items-center gap-2 ml-4">
+                <Switch
+                  id="toggle-only-mine"
+                  checked={onlyMine}
+                  onCheckedChange={handleOnlyMineChange}
+                />
+                <label
+                  htmlFor="toggle-only-mine"
+                  className="text-sm text-muted-foreground select-none"
+                >
+                  Meus prompts
+                </label>
+              </div>
             )}
           </div>
         </div>
