@@ -9,7 +9,7 @@ const toNum = (v, def = 0) => (typeof v === 'bigint' ? Number(v) : (v ?? def));
 function serializeBigInt(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return Number(obj);
-  // AJUSTE GPT: preserva objetos Date originais
+  
   if (obj instanceof Date) return obj;
   if (Array.isArray(obj)) return obj.map(serializeBigInt);
   if (typeof obj === 'object') {

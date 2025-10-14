@@ -1,10 +1,11 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import bannerIa from '@/assets/banner-ia-pcsc.jpeg';
 import { 
   Target, 
   Eye, 
-  Heart, 
+  Handshake, 
   Shield, 
   Users, 
   Lightbulb,
@@ -26,50 +27,60 @@ const Sobre = () => {
       icon: Shield,
       title: 'Ética',
       description: 'Uso responsável e justo da IA, respeitando a privacidade e os direitos humanos.',
-      color: 'bg-green-500'
+      color: 'bg-yellow-500'
     },
     {
       icon: Users,
       title: 'Colaboração',
       description: 'Fomento à troca de conhecimento e experiências entre os profissionais.',
-      color: 'bg-blue-500'
+      color: 'bg-yellow-500'
     },
     {
       icon: Globe,
       title: 'Transparência',
       description: 'Clareza nos processos e decisões assistidas por IA.',
-      color: 'bg-purple-500'
+      color: 'bg-yellow-500'
     },
     {
       icon: Award,
       title: 'Excelência',
       description: 'Compromisso com a qualidade e aprimoramento contínuo.',
-      color: 'bg-red-500'
+      color: 'bg-yellow-500'
     }
   ];
 
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
-      <section className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground py-20">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <Badge variant="secondary" className="mb-4 bg-accent/10 text-accent border-accent/20">
-              Sobre o Projeto
-            </Badge>
-            <h1 className="text-4xl md:text-5xl font-bold mb-6 text-white">
-              PCSC-IA
-            </h1>
-            <p className="text-xl mb-4 text-white/90 max-w-3xl mx-auto">
-              Plataforma Colaborativa de Inteligência Artificial
-            </p>
-            <p className="text-lg text-white/80 max-w-4xl mx-auto">
-              Uma iniciativa da Polícia Civil de Santa Catarina para fomentar o uso estratégico, 
-              ético e colaborativo da Inteligência Artificial na atividade policial.
-            </p>
-          </div>
-        </div>
-      </section>
+   <section className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground py-12">
+  <div className="container mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center md:items-center gap-4">
+    {/* Imagem ilustrativa do projeto */}
+    <div className="md:w-1/3 flex justify-center md:justify-end mb-4 md:mb-0">
+      <div className="w-44 h-44 rounded-full bg-white/10 flex items-center justify-center shadow-lg overflow-visible">
+        <img
+          src={bannerIa}
+          alt="Polícia Civil Inteligência Artificial"
+          className="max-w-full max-h-full object-scale-down rounded-full"
+        />
+      </div>
+    </div>
+
+    {/* Texto do projeto */}
+    <div className="md:w-2/3 text-center md:text-left md:pl-4">
+      <h1 className="text-4xl md:text-5xl font-bold mb-3 text-white">PCSC-IA</h1>
+      <p className="text-lg mb-2 text-white/90 max-w-3xl mx-auto md:mx-0">
+        Plataforma Colaborativa de Inteligência Artificial
+      </p>
+      <p className="text-base text-white/80 max-w-4xl mx-auto md:mx-0">
+        Uma iniciativa da Polícia Civil de Santa Catarina para fomentar o uso estratégico,
+        ético e colaborativo da Inteligência Artificial na atividade policial.
+      </p>
+    </div>
+  </div>
+</section>
+
+
+
 
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-16">
         {/* Missão */}
@@ -98,18 +109,18 @@ const Sobre = () => {
         </Card>
 
         {/* Visão */}
-        <Card className="mb-12 group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500">
+        <Card className="mb-12 group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-yellow-500">
           <CardHeader>
             <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center group-hover:bg-blue-500/20 transition-colors duration-300">
-                <Eye className="h-6 w-6 text-blue-500 group-hover:scale-110 transition-transform duration-300" />
+               <div className="w-12 h-12 bg-accent/10 rounded-lg flex items-center justify-center group-hover:bg-accent/20 transition-colors duration-300">
+                <Eye className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
               </div>
               <CardTitle className="text-2xl">Nossa Visão</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="text-muted-foreground leading-relaxed">
             <p className="text-lg">
-              Ser <strong className="text-blue-500">referência nacional</strong> no uso de Inteligência 
+              Ser <strong className="text-yellow-500">referência nacional</strong> no uso de Inteligência 
               Artificial em segurança pública, impulsionando a modernização e aprimoramento contínuo 
               das práticas policiais através da tecnologia e da colaboração.
             </p>
@@ -118,14 +129,14 @@ const Sobre = () => {
 
         {/* Valores */}
         <div className="mb-12">
-          <div className="text-center mb-12">
-            <div className="flex items-center justify-center space-x-3 mb-4">
-              <div className="w-12 h-12 bg-red-500/10 rounded-lg flex items-center justify-center">
-                <Heart className="h-6 w-6 text-red-500" />
+          <div className="mb-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center">
+                <Handshake className="h-6 w-6 text-yellow-500" />
               </div>
-              <h2 className="text-3xl font-bold text-foreground">Nossos Valores</h2>
+              <h2 className="text-2xl font-bold text-foreground">Nossos Valores</h2>
             </div>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg">
               Os princípios que guiam nossa atuação e desenvolvimento da plataforma
             </p>
           </div>
@@ -153,11 +164,11 @@ const Sobre = () => {
         </div>
 
         {/* Benefícios */}
-        <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500">
+        <Card className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-yellow-500">
           <CardHeader>
             <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-green-500/10 rounded-lg flex items-center justify-center group-hover:bg-green-500/20 transition-colors duration-300">
-                <CheckCircle className="h-6 w-6 text-green-500 group-hover:scale-110 transition-transform duration-300" />
+              <div className="w-12 h-12 bg-accent/10 rounded-lg flex items-center justify-center group-hover:bg-accent/20 transition-colors duration-300">
+                <CheckCircle className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
               </div>
               <CardTitle className="text-2xl">Benefícios da Plataforma</CardTitle>
             </div>

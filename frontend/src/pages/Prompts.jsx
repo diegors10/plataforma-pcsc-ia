@@ -107,7 +107,7 @@ useEffect(() => {
       const params = { page, limit: 10, sort: sortBy };
       if (searchTerm) params.search = searchTerm;
       if (selectedCategory) params.category = selectedCategory;
-      // AJUSTE GPT: filtrar por autor quando solicitado
+      
       if (onlyMine && user?.id) params.author = user.id;
 
 

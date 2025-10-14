@@ -31,7 +31,7 @@ import {
 } from '@/utils/postLikesStore';
 import { toast } from 'sonner';
 
-// AJUSTE GPT: importa util de formatação de data consistente
+
 import { formatDateTime } from '@/utils/time';
 
 // Página para visualizar uma discussão específica e suas postagens
@@ -100,7 +100,7 @@ const VisualizarDiscussao = () => {
         setPosts(mergedPosts);
       } catch (err) {
         console.error('Erro ao carregar discussão', err);
-        // AJUSTE GPT: Removido className personalizado para usar cores padrão definidas no Toaster
+        
         toast.error('Erro ao carregar discussão.');
       } finally {
         setLoading(false);

@@ -1,6 +1,5 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-// AJUSTE GPT: usa Toaster customizado que define cores de sucesso/erro
 import { Toaster } from '@/components/ui/sonner';
 import { ThemeProvider } from './components/ThemeProvider';
 import Layout from './components/Layout';

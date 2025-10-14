@@ -109,10 +109,10 @@ const Home = () => {
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
           .slice(0, 4)
           .map((act) => {
-            // AJUSTE GPT: loga o tipo e valor do campo createdAt recebido das atividades
-            try {
-              console.log('Home.jsx recent activity createdAt:', act.createdAt, 'type:', typeof act.createdAt);
-            } catch {}
+            
+            // try {
+            //   console.log('Home.jsx recent activity createdAt:', act.createdAt, 'type:', typeof act.createdAt);
+            // } catch {}
             const userName = act.user?.nome ?? act.user?.name ?? 'Usuário';
             let action;
             let item;
@@ -370,7 +370,7 @@ const Home = () => {
                     <CardContent className="p-4">
                       <div className="flex items-start space-x-4">
                         <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center group-hover:bg-accent/20 transition-colors duration-300">
-                          {/* AJUSTE GPT: exibe as iniciais do usuário no círculo em vez do ícone genérico */}
+                          
                           {(() => {
                             const name = activity.user || '';
                             const parts = name.split(' ').filter(Boolean);

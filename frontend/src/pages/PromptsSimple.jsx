@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Plus, Eye, ThumbsUp, MessageCircle, Clock, User, Loader2, AlertCircle } from 'lucide-react';
-// AJUSTE GPT: importa Switch para toggle "Meus prompts"
+
 import { Switch } from '@/components/ui/switch';
-// AJUSTE GPT: importa specialtiesAPI para carregar categorias
+
 import { specialtiesAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,7 +17,7 @@ import { formatTimeAgo } from '@/utils/time';
 import { hasLikedPrompt, markLikedPrompt, mergeIsLikedInList, getLocalLikeDelta } from '@/utils/likesStore';
 
 const PromptsSimple = () => {
-  // AJUSTE GPT: também precisamos do usuário logado para filtrar "Meus prompts"
+  
   const { isAuthenticated, user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -27,13 +27,13 @@ const PromptsSimple = () => {
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
 
-  // AJUSTE GPT: filtro "Meus prompts" baseado no parâmetro 'author'
+  
   const [onlyMine, setOnlyMine] = useState(() => {
     const param = searchParams.get('author');
     return !!param;
   });
 
-  // AJUSTE GPT: categorias carregadas do backend para filtro
+  
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
 
@@ -55,7 +55,7 @@ const PromptsSimple = () => {
       const params = { limit: 20 };
       if (search) params.search = search;
       if (category) params.category = category;
-      // AJUSTE GPT: adiciona o parâmetro author quando filtrando "Meus prompts"
+      
       if (author) params.author = author;
       // Use promptsAPI.getAll to automatically include noRedirectOn401 meta
       // and normalise responses.
@@ -86,7 +86,7 @@ const PromptsSimple = () => {
     }
   };
 
-  // AJUSTE GPT: recarrega prompts quando termo de busca, categoria, onlyMine ou usuário mudarem
+
   useEffect(() => {
     fetchPrompts({
       search: debouncedSearch,
@@ -115,7 +115,7 @@ const PromptsSimple = () => {
     setSearchParams(next);
   };
 
-  // AJUSTE GPT: ativa ou desativa filtro "Meus prompts" e atualiza URL
+  
   const handleOnlyMineChange = (checked) => {
     setOnlyMine(checked);
     const next = new URLSearchParams(searchParams);
@@ -127,7 +127,7 @@ const PromptsSimple = () => {
     setSearchParams(next);
   };
 
-  // AJUSTE GPT: carrega categorias do backend (especialidades) para filtros
+  
   useEffect(() => {
     const loadCategories = async () => {
       try {
@@ -221,7 +221,7 @@ const PromptsSimple = () => {
               className="pl-10"
             />
           </div>
-          {/* AJUSTE GPT: filtros de categoria e "Meus prompts" */}
+         
           <div className="flex flex-wrap items-center gap-2 py-3 mt-4">
             {/* Botão para todas as categorias */}
             <Button
@@ -308,7 +308,7 @@ const PromptsSimple = () => {
               const createdAt = prompt?.createdAt ?? prompt?.criado_em ?? new Date().toISOString();
               const authorName = prompt?.author?.name ?? prompt?.usuarios?.nome ?? 'Usuário';
 
-              // AJUSTE GPT: calcula as iniciais do autor para substituir o ícone genérico
+              
               const getInitials = (name) => {
                 if (!name) return '';
                 const parts = String(name).trim().split(/\s+/);
@@ -356,7 +356,7 @@ const PromptsSimple = () => {
                       <div className="flex items-center space-x-4">
                         <div className="flex items-center">
                           <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center mr-2">
-                            {/* AJUSTE GPT: mostra as iniciais do autor em vez de ícone de usuário */}
+                           
                             <span className="text-sm font-medium text-accent">{initials}</span>
                           </div>
                           <div>
