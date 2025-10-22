@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  User,
   Clock,
   ThumbsUp,
   MessageCircle,
   ArrowLeft,
   Send,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Edit,
+  Trash2,
+  MoreVertical
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Card,
   CardContent,
@@ -19,7 +22,8 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+// Utilizaremos o componente UserAvatar em vez dos avatares base para exibir iniciais
+import UserAvatar from '@/components/UserAvatar';
 import { Separator } from '@/components/ui/separator';
 import { discussionsAPI, postsAPI } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,6 +37,12 @@ import { toast } from 'sonner';
 
 
 import { formatDateTime } from '@/utils/time';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 // Página para visualizar uma discussão específica e suas postagens
 const VisualizarDiscussao = () => {
@@ -44,8 +54,13 @@ const VisualizarDiscussao = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Contexto de autenticação
-  const { isAuthenticated } = useAuth();
+  // Estados para edição da discussão
+  const [editingDiscussion, setEditingDiscussion] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+
+  // Contexto de autenticação e usuário
+  const { isAuthenticated, user } = useAuth();
 
   // Carregar dados da discussão e postagens ao montar
   useEffect(() => {
@@ -108,6 +123,64 @@ const VisualizarDiscussao = () => {
     };
     fetchData();
   }, [id]);
+
+  /**
+   * Determina se o usuário atual pode editar ou excluir a discussão.
+   * Apenas o autor da discussão ou moderadores podem editá-la.
+   */
+  const canEditDiscussion = !!(
+    user &&
+    discussion &&
+    discussion.author &&
+    (String(user.id) === String(discussion.author.id) || user.e_moderador)
+  );
+
+  /**
+   * Salva as alterações da discussão após edição.
+   */
+  const handleUpdateDiscussion = async () => {
+    if (!discussion) return;
+    const title = editTitle.trim();
+    const description = editDescription.trim();
+    if (!title || !description) {
+      toast.error('Título e descrição são obrigatórios.');
+      return;
+    }
+    try {
+      await discussionsAPI.update(discussion.id, {
+        titulo: title,
+        descricao: description,
+      });
+      setDiscussion((prev) =>
+        prev ? { ...prev, title: title, description: description } : prev
+      );
+      toast.success('Discussão atualizada com sucesso!');
+      setEditingDiscussion(false);
+    } catch (err) {
+      console.error('Erro ao atualizar discussão', err);
+      toast.error('Erro ao atualizar discussão.');
+    }
+  };
+
+  /**
+   * Exclui a discussão atual após confirmação do usuário.
+   */
+  const handleDeleteDiscussion = async () => {
+    if (!discussion) return;
+    const confirmDelete = window.confirm(
+      'Tem certeza que deseja excluir esta discussão? Esta ação não pode ser desfeita.'
+    );
+    if (!confirmDelete) return;
+    try {
+      await discussionsAPI.delete(discussion.id);
+      toast.success('Discussão excluída com sucesso!');
+      // Redireciona para a lista de discussões após a exclusão
+      navigate('/discussoes');
+    } catch (err) {
+      console.error('Erro ao excluir discussão', err);
+      toast.error('Erro ao excluir discussão.');
+    }
+  };
 
   // NOTE: Removido formatDateTime local; utiliza-se util importado
 
@@ -240,18 +313,49 @@ const VisualizarDiscussao = () => {
           </Button>
           <h1 className="text-2xl font-bold text-foreground">{discussion.title}</h1>
         </div>
-        <p className="text-muted-foreground mb-4">{discussion.description}</p>
+        {/* Se estiver editando, mostre um formulário para editar título e descrição */}
+        {editingDiscussion ? (
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle>Editar Discussão</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                handleUpdateDiscussion();
+              }} className="space-y-4">
+                <div>
+                  <Input
+                    placeholder="Título da discussão"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className=""
+                  />
+                </div>
+                <div>
+                  <Textarea
+                    placeholder="Descrição da discussão"
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    className="min-h-[100px]"
+                  />
+                </div>
+                <div className="flex justify-end space-x-2">
+                  <Button type="submit" disabled={!editTitle.trim() || !editDescription.trim()}>Salvar</Button>
+                  <Button type="button" variant="outline" onClick={() => setEditingDiscussion(false)}>Cancelar</Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        ) : (
+          <p className="text-muted-foreground mb-4">{discussion.description}</p>
+        )}
         <div className="flex items-center space-x-4 mb-6">
           {discussion.author && (
             <div className="flex items-center">
-              <Avatar className="w-8 h-8 mr-2">
-                {discussion.author.avatar ? (
-                  <AvatarImage src={discussion.author.avatar} alt={discussion.author.name} />
-                ) : (
-                  <AvatarFallback>{discussion.author.name[0]}</AvatarFallback>
-                )}
-              </Avatar>
-              <div>
+              {/* Avatar ou iniciais do autor */}
+              <UserAvatar user={discussion.author} size="sm" />
+              <div className="ml-2">
                 <p className="text-sm font-medium text-foreground">{discussion.author.name}</p>
                 <p className="text-xs text-muted-foreground flex items-center">
                   <Clock className="h-3 w-3 inline mr-1" />
@@ -263,6 +367,35 @@ const VisualizarDiscussao = () => {
           <div className="flex items-center space-x-4 ml-auto">
             <span className="text-sm text-muted-foreground">{discussion.postsCount} posts</span>
             <span className="text-sm text-muted-foreground">{discussion.views} visualizações</span>
+            {/* Dropdown de ações para editar/excluir se permitido */}
+            {canEditDiscussion && !editingDiscussion && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setEditTitle(discussion.title || '');
+                      setEditDescription(discussion.description || '');
+                      setEditingDiscussion(true);
+                    }}
+                  >
+                    <Edit className="h-4 w-4 mr-2" />
+                    Editar
+                  </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={handleDeleteDiscussion}
+                      className="text-red-600"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Excluir
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
         <Separator className="my-6" />
@@ -279,13 +412,8 @@ const VisualizarDiscussao = () => {
               <Card key={post.id} className="hover:shadow-md transition-all duration-300">
                 <CardContent className="p-4">
                   <div className="flex items-start mb-2">
-                    <Avatar className="w-8 h-8 mr-3">
-                      {post.author?.avatar ? (
-                        <AvatarImage src={post.author.avatar} alt={post.author.name} />
-                      ) : (
-                        <AvatarFallback>{post.author?.name?.[0] || '?'}</AvatarFallback>
-                      )}
-                    </Avatar>
+                    {/* Avatar ou iniciais do autor da postagem */}
+                    <UserAvatar user={post.author} size="sm" className="mr-3" />
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-foreground">{post.author?.name || 'Usuário'}</p>
                       <p className="text-xs text-muted-foreground flex items-center">

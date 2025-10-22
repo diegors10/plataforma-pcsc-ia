@@ -12,12 +12,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { promptsAPI } from '@/lib/api';
 import { toast } from 'sonner';
-// Importa util de tempo para formatar datas de forma consistente
 import { formatTimeAgo } from '@/utils/time';
 import { hasLikedPrompt, markLikedPrompt, mergeIsLikedInList, getLocalLikeDelta } from '@/utils/likesStore';
 
 const PromptsSimple = () => {
-  
   const { isAuthenticated, user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -27,13 +25,11 @@ const PromptsSimple = () => {
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
 
-  
   const [onlyMine, setOnlyMine] = useState(() => {
     const param = searchParams.get('author');
     return !!param;
   });
 
-  
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
 
@@ -44,33 +40,62 @@ const PromptsSimple = () => {
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // Simplified fetch: use promptsAPI.getAll for consistent behaviour
-  // Fetch prompts from the backend. We do not abort previous requests
-  // because axios handles concurrency gracefully, and the number of calls
-  // here is small. If search/category changes quickly, only the latest
-  // response will be displayed.
+  // Helper robusto para extrair o nome do autor em diferentes formatos do backend
+  const getAuthorName = (p) => {
+    // Objetos aninhados comuns
+    const objName =
+      p?.author?.name ??
+      p?.autor?.nome ?? p?.autor?.name ??
+      p?.usuarios?.nome ??
+      p?.user?.name ??
+      p?.criado_por_nome ??
+      null;
+
+    if (typeof objName === 'string' && objName.trim()) return objName.trim();
+
+    // Às vezes o backend envia string direta em `author`/`autor`
+    if (typeof p?.author === 'string' && p.author.trim()) return p.author.trim();
+    if (typeof p?.autor === 'string' && p.autor.trim()) return p.autor.trim();
+
+    // Último recurso
+    return 'Usuário';
+  };
+
+  const getInitials = (name) => {
+    if (!name) return '';
+    const cleaned = String(name).trim();
+    // Se vier email, usa parte antes do @
+    const base = cleaned.includes('@') ? cleaned.split('@')[0] : cleaned;
+    const parts = base.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) {
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+    return `${(parts[0][0] ?? '')}${(parts[1][0] ?? '')}`.toUpperCase();
+  };
+
+  // Fetch prompts
   const fetchPrompts = async ({ search, category, author }) => {
     try {
       setLoading(true);
       const params = { limit: 20 };
       if (search) params.search = search;
       if (category) params.category = category;
-      
       if (author) params.author = author;
-      // Use promptsAPI.getAll to automatically include noRedirectOn401 meta
-      // and normalise responses.
+
       const resp = await promptsAPI.getAll(params);
-      // Accept { prompts: [...] } or an array directly
       const data = Array.isArray(resp?.data)
         ? resp.data
         : resp?.data?.prompts || resp?.data?.items || resp?.data || [];
-      // inject isLiked local state
+
+      // injeta estado local de like
       const withLocalLiked = mergeIsLikedInList(data);
-      // add local like delta to likes counter
+
+      // soma delta local no contador
       const withDeltaLikes = withLocalLiked.map((p) => ({
         ...p,
-        likes: (Number(p.likes) || 0) + getLocalLikeDelta(p.id),
+        likes: (Number(p.likes) || Number(p._count?.curtidas) || 0) + getLocalLikeDelta(p.id),
       }));
+
       setPrompts(withDeltaLikes);
     } catch (error) {
       console.error('Erro ao buscar prompts:', error);
@@ -86,16 +111,12 @@ const PromptsSimple = () => {
     }
   };
 
-
   useEffect(() => {
     fetchPrompts({
       search: debouncedSearch,
       category: selectedCategory,
       author: onlyMine && user?.id ? user.id : undefined,
     });
-    return () => {
-      // no-op: não abortamos requisições anteriores nesta versão simplificada
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, selectedCategory, onlyMine, user?.id]);
 
@@ -115,7 +136,6 @@ const PromptsSimple = () => {
     setSearchParams(next);
   };
 
-  
   const handleOnlyMineChange = (checked) => {
     setOnlyMine(checked);
     const next = new URLSearchParams(searchParams);
@@ -127,7 +147,6 @@ const PromptsSimple = () => {
     setSearchParams(next);
   };
 
-  
   useEffect(() => {
     const loadCategories = async () => {
       try {
@@ -168,10 +187,8 @@ const PromptsSimple = () => {
     const target = prompts.find((p) => p.id === promptId);
     if (!target) return;
 
-    // Se já curtiu neste navegador, não chama a API
     if (target.isLiked || hasLikedPrompt(promptId)) return;
 
-    // UI otimista
     setPrompts((prev) =>
       prev.map((p) =>
         p.id === promptId ? { ...p, isLiked: true, likes: (Number(p.likes) || 0) + 1 } : p
@@ -180,16 +197,11 @@ const PromptsSimple = () => {
     markLikedPrompt(promptId);
 
     try {
-      // Tentativa silenciosa na API; caso 401/429, não redireciona nem desfaz
       await promptsAPI.like(promptId);
     } catch {
       // silencioso
     }
   };
-
-  // Anteriormente havia uma implementação local de formatTimeAgo. Agora utilizamos
-  // a função centralizada em utils/time para garantir consistência e tratamento de
-  // datas inválidas. Ver @/utils/time.js
 
   return (
     <div className="min-h-screen bg-background">
@@ -210,7 +222,7 @@ const PromptsSimple = () => {
           </Button>
         </div>
 
-        {/* Busca */}
+        {/* Busca e filtros rápidos */}
         <div className="mb-6">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -221,9 +233,8 @@ const PromptsSimple = () => {
               className="pl-10"
             />
           </div>
-         
+
           <div className="flex flex-wrap items-center gap-2 py-3 mt-4">
-            {/* Botão para todas as categorias */}
             <Button
               variant="outline"
               size="sm"
@@ -255,7 +266,6 @@ const PromptsSimple = () => {
                 );
               })
             )}
-            {/* Filtro "Meus prompts" */}
             {user?.id && (
               <div className="flex items-center gap-2 ml-4">
                 <Switch
@@ -302,23 +312,14 @@ const PromptsSimple = () => {
               const title = prompt?.title ?? prompt?.titulo ?? 'Sem título';
               const description = prompt?.description ?? prompt?.descricao ?? '';
               const tags = Array.isArray(prompt?.tags) ? prompt.tags : [];
-              const likes = Number(prompt?.likes ?? 0);
-              const isLiked = !!prompt?.isLiked;
-              const comments = Number(prompt?.comments ?? 0);
+              const likes = Number(
+                (prompt?.likes ?? 0) + getLocalLikeDelta(prompt?.id)
+              );
+              const isLiked = !!(prompt?.isLiked || hasLikedPrompt(prompt?.id));
+              const comments = Number(prompt?.comments ?? prompt?._count?.comentarios ?? 0);
               const createdAt = prompt?.createdAt ?? prompt?.criado_em ?? new Date().toISOString();
-              const authorName = prompt?.author?.name ?? prompt?.usuarios?.nome ?? 'Usuário';
 
-              
-              const getInitials = (name) => {
-                if (!name) return '';
-                const parts = String(name).trim().split(/\s+/);
-                if (parts.length === 1) {
-                  return parts[0].slice(0, 2).toUpperCase();
-                }
-                const first = parts[0][0] ?? '';
-                const second = parts[1][0] ?? '';
-                return `${first}${second}`.toUpperCase();
-              };
+              const authorName = getAuthorName(prompt);
               const initials = getInitials(authorName);
 
               return (
@@ -356,7 +357,6 @@ const PromptsSimple = () => {
                       <div className="flex items-center space-x-4">
                         <div className="flex items-center">
                           <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center mr-2">
-                           
                             <span className="text-sm font-medium text-accent">{initials}</span>
                           </div>
                           <div>

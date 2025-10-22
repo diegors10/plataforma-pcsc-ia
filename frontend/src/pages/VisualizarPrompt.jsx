@@ -9,7 +9,6 @@ import {
   MessageCircle,
   ThumbsUp,
   Clock,
-  User,
   Tag,
   Share2,
   Copy,
@@ -21,12 +20,20 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { promptsAPI, authAPI } from '@/lib/api';
 import { toast } from 'sonner';
-import { useAuth } from '@/contexts/AuthContext';
 import CommentsSection from '@/components/CommentsSection';
 
 const toArray = (val) => (Array.isArray(val) ? val : (val ? [val] : []));
 const safeNumber = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const safeString = (v, d = '') => (v !== null && v !== undefined ? String(v) : d);
+
+// Helper para iniciais
+const getInitials = (name) => {
+  if (!name) return '';
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+};
 
 function normalizePrompt(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -48,11 +55,29 @@ function normalizePrompt(raw) {
   const atualizadoEm =
     raw.atualizado_em ?? raw.updatedAt ?? raw.updated_at ?? criadoEm;
 
+  // mapeamento do autor vindo do backend
   const autor = {
-    id: raw.autor_id ?? raw.author_id ?? raw.author?.id,
-    nome: safeString(raw.autor_nome ?? raw.author?.name ?? raw.usuarios?.nome, 'Usuário'),
-    avatar: raw.autor_avatar ?? raw.author?.avatar ?? raw.usuarios?.avatar ?? null,
-    cargo: safeString(raw.author?.role ?? raw.usuarios?.cargo, '')
+    id:
+      raw.autor?.id ??
+      raw.autor_id ??
+      raw.author_id ??
+      raw.author?.id ??
+      raw.usuarios?.id ??
+      null,
+    nome: safeString(
+      raw.autor?.nome ??
+        raw.autor_nome ??
+        raw.author?.name ??
+        raw.usuarios?.nome,
+      'Usuário'
+    ),
+    avatar: raw.autor?.avatar ?? raw.autor_avatar ?? raw.author?.avatar ?? raw.usuarios?.avatar ?? null,
+    cargo: safeString(
+      raw.autor?.cargo ??
+        raw.author?.role ??
+        raw.usuarios?.cargo,
+      ''
+    ),
   };
 
   let tags = raw.tags;
@@ -83,9 +108,9 @@ function normalizePrompt(raw) {
   const comentarios = toArray(raw.comentarios ?? raw.comments).map((c) => ({
     id: c?.id ?? c?.comment_id ?? Math.random().toString(36).slice(2),
     autor: {
-      id: c?.autor_id ?? c?.user_id ?? c?.author?.id,
-      nome: safeString(c?.autor_nome ?? c?.author?.name ?? c?.usuario?.nome ?? 'Usuário'),
-      avatar: c?.autor_avatar ?? c?.author?.avatar ?? c?.usuario?.avatar ?? null
+      id: c?.autor?.id ?? c?.autor_id ?? c?.user_id ?? c?.author?.id ?? c?.usuario?.id,
+      nome: safeString(c?.autor?.nome ?? c?.autor_nome ?? c?.author?.name ?? c?.usuario?.nome ?? 'Usuário'),
+      avatar: c?.autor?.avatar ?? c?.autor_avatar ?? c?.author?.avatar ?? c?.usuario?.avatar ?? null
     },
     conteudo: safeString(c?.conteudo ?? c?.content ?? c?.texto, ''),
     criadoEm: c?.criado_em ?? c?.created_at ?? c?.createdAt ?? new Date().toISOString()
@@ -140,11 +165,10 @@ const VisualizarPrompt = () => {
 
   const [currentUser, setCurrentUser] = useState(null);
 
-  // Ref para evitar chamadas duplicadas no modo Strict do React
   const fetchedRef = useRef(false);
 
   const applyLocalLikeState = (normalized) => {
-    const delta = getLocalLikeDelta(normalized.id); // 0 ou 1 no nosso caso
+    const delta = getLocalLikeDelta(normalized.id);
     const alreadyLiked = hasLikedPrompt(normalized.id);
     return {
       ...normalized,
@@ -169,7 +193,6 @@ const VisualizarPrompt = () => {
       const normalized = normalizePrompt(data);
       setPrompt(applyLocalLikeState(normalized));
 
-      // Buscar prompts relacionados separadamente
       try {
         const relatedResp = await promptsAPI.getRelated(pid);
         const relatedData = relatedResp?.data?.prompts || [];
@@ -189,7 +212,6 @@ const VisualizarPrompt = () => {
 
   const fetchMe = async () => {
     try {
-      // versão que não redireciona em 401 (garanta no api.js)
       const me = await (authAPI.getMeOptional ? authAPI.getMeOptional() : authAPI.getMe());
       const user = me?.data || null;
       setCurrentUser(user);
@@ -205,8 +227,6 @@ const VisualizarPrompt = () => {
       setLoading(false);
       return;
     }
-    // Em ambientes de desenvolvimento com React Strict Mode, useEffect pode disparar duas vezes.
-    // Usamos uma ref para garantir que a busca seja feita apenas uma vez.
     if (!fetchedRef.current) {
       fetchedRef.current = true;
       fetchPrompt(promptId);
@@ -217,11 +237,8 @@ const VisualizarPrompt = () => {
 
   const handleLike = async () => {
     if (!prompt || liking) return;
-
-    // se já curtiu neste navegador, não chama API e mantém contagem como está
     if (prompt.isLiked || hasLikedPrompt(prompt.id)) return;
 
-    // UI otimista + persistência local
     setLiking(true);
     setPrompt((prev) =>
       prev ? { ...prev, likesCount: safeNumber(prev.likesCount, 0) + 1, isLiked: true } : prev
@@ -229,10 +246,9 @@ const VisualizarPrompt = () => {
     markLikedPrompt(prompt.id);
 
     try {
-      // tenta no servidor, mas qualquer erro é silencioso
       await promptsAPI.like(prompt.id);
     } catch {
-      // não desfazer localmente
+      // silencioso
     } finally {
       setLiking(false);
     }
@@ -270,8 +286,6 @@ const VisualizarPrompt = () => {
       toast.error('Não foi possível copiar o conteúdo.');
     }
   };
-
-  // Removemos a função local de formatação de tempo. Em vez disso, utilizamos o util compartilhado.
 
   const ContentSkeleton = () => (
     <div className="space-y-3 animate-pulse">
@@ -322,6 +336,18 @@ const VisualizarPrompt = () => {
   const canEdit =
     currentUser?.id && prompt.autor?.id && String(currentUser.id) === String(prompt.autor.id);
 
+  // Iniciais e autor
+  const authorName = prompt.autor?.nome || 'Usuário';
+  const authorInitials = getInitials(authorName);
+
+  // Mostrar "Atualizado" somente se houve alteração (updated > created)
+  const createdMs = Number(new Date(prompt.criadoEm));
+  const updatedMs = Number(new Date(prompt.atualizadoEm));
+  const hasRealUpdate =
+    Number.isFinite(createdMs) &&
+    Number.isFinite(updatedMs) &&
+    updatedMs > createdMs;
+
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Barra superior */}
@@ -352,11 +378,11 @@ const VisualizarPrompt = () => {
           {/* Autor acima do título */}
           <div className="flex items-center mb-4">
             <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mr-3">
-              <User className="h-5 w-5 text-muted-foreground" />
+              <span className="text-accent font-semibold">{authorInitials}</span>
             </div>
             <div className="leading-tight">
               <div className="text-sm font-medium">
-                {prompt.autor?.nome || 'Usuário'}
+                {authorName}
               </div>
               <div className="text-xs text-muted-foreground">
                 {prompt.autor?.cargo || 'Autor'}
@@ -384,7 +410,7 @@ const VisualizarPrompt = () => {
               <Clock className="inline h-3 w-3 mr-1" />
               Criado: {formatTimeAgo(prompt.criadoEm)}
             </span>
-            {prompt.atualizadoEm && (
+            {hasRealUpdate && (
               <span className="flex items-center">
                 <Clock className="inline h-3 w-3 mr-1" />
                 Atualizado: {formatTimeAgo(prompt.atualizadoEm)}

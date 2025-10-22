@@ -24,7 +24,7 @@ import {
   hasLikedPrompt,
   markLikedPrompt,
   mergeIsLikedInList,
-  getLocalLikeDelta, // <-- IMPORTADO
+  getLocalLikeDelta,
 } from '@/utils/likesStore';
 
 import { Switch } from '@/components/ui/switch';
@@ -33,33 +33,18 @@ import { formatTimeAgo } from '@/utils/time';
 
 const CATEGORIES_CACHE_KEY = 'pcsc_categories_cache';
 
-// Normaliza o shape vindo do backend (/prompts)
-// Esta função converte campos em português (ex.: titulo, descricao, categoria)
-// para os nomes esperados pelo frontend (title, description, category). Também
-// lida com likes/comments vindos no `_count`.
+// Normalizador
 const normalizePrompt = (p) => ({
   id: p.id,
-  // fallback to 'titulo' if 'title' is missing
   title: p.title ?? p.titulo ?? 'Sem título',
   description: p.description ?? p.descricao ?? '',
   category: p.category ?? p.categoria ?? '—',
   tags: Array.isArray(p.tags) ? p.tags : [],
-  // some APIs return 'views', others 'visualizacoes'
   views: Number(p.views ?? p.visualizacoes ?? 0),
-  likes: Number(
-    p.likes ??
-    (p._count ? p._count.curtidas : undefined) ??
-    0
-  ),
-  comments: Number(
-    p.comments ??
-    (p._count ? p._count.comentarios : undefined) ??
-    0
-  ),
+  likes: Number(p.likes ?? (p._count ? p._count.curtidas : undefined) ?? 0),
+  comments: Number(p.comments ?? (p._count ? p._count.comentarios : undefined) ?? 0),
   createdAt: p.createdAt ?? p.criado_em ?? p.atualizado_em ?? new Date().toISOString(),
-  // unify author fields (some APIs return `author`, others `autor`)
-  author: p.author ??
-    (p.autor ? { id: p.autor.id, name: p.autor.nome, avatar: p.autor.avatar } : undefined),
+  author: p.author ?? (p.autor ? { id: p.autor.id, name: p.autor.nome, avatar: p.autor.avatar } : undefined),
   isLiked: !!p.isLiked,
 });
 
@@ -67,9 +52,10 @@ const Prompts = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [prompts, setPrompts] = useState([]);
-  const [loading, setLoading] = useState(true);                // 1ª carga
-  const [filtersLoading, setFiltersLoading] = useState(false); // transição de filtro
+  const [loading, setLoading] = useState(true);
+  const [filtersLoading, setFiltersLoading] = useState(false);
 
+  // Inicializa a partir da querystring (inclui support a `category` vindo da Home)
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'recent');
@@ -78,7 +64,7 @@ const Prompts = () => {
   const [page, setPage] = useState(Number(searchParams.get('page') || 1));
   const [totalPages, setTotalPages] = useState(1);
 
-  // Categorias com cache para nunca sumirem na UI
+  // Categorias com cache
   const [categories, setCategories] = useState(() => {
     try {
       const cached = sessionStorage.getItem(CATEGORIES_CACHE_KEY);
@@ -91,63 +77,51 @@ const Prompts = () => {
   });
   const [categoriesLoading, setCategoriesLoading] = useState(categories.length === 0);
 
-  // Mostra somente prompts criados pelo usuário logado
   const { user } = useAuth();
-  const [onlyMine, setOnlyMine] = useState(() => {
-    const param = searchParams.get('author');
-    return !!param;
-  });
+  const [onlyMine, setOnlyMine] = useState(() => !!searchParams.get('author'));
 
   // PROMPTS
-useEffect(() => {
-  let cancelled = false;
-  const load = async () => {
-    setFiltersLoading((prev) => (loading ? prev : true));
-    try {
-      const params = { page, limit: 10, sort: sortBy };
-      if (searchTerm) params.search = searchTerm;
-      if (selectedCategory) params.category = selectedCategory;
-      
-      if (onlyMine && user?.id) params.author = user.id;
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setFiltersLoading((prev) => (loading ? prev : true));
+      try {
+        const params = { page, limit: 10, sort: sortBy };
+        if (searchTerm) params.search = searchTerm;
+        if (selectedCategory) params.category = selectedCategory;
+        if (onlyMine && user?.id) params.author = user.id;
 
+        const response = await promptsAPI.getAll(params, { meta: { noRedirectOn401: true } });
+        if (cancelled) return;
 
-    const response = await promptsAPI.getAll(params, { meta: { noRedirectOn401: true } });
-    if (cancelled) return;
-
-     // Aceita tanto { prompts: [...] } quanto um array direto [...]
-    const raw = Array.isArray(response?.data)
-       ? response.data
-       : (response?.data?.prompts || []);
-
-     const normalized = (raw || []).map(normalizePrompt);
-     const withLocalLiked = mergeIsLikedInList(normalized);
-     // soma o delta local de likes ao contador vindo do servidor
-     const withDeltaLikes = withLocalLiked.map((p) => ({
-       ...p,
-       likes: (Number(p.likes) || 0) + getLocalLikeDelta(p.id),
-     }));
-     setPrompts(withDeltaLikes);
-     setTotalPages(
-       Array.isArray(response?.data) ? 1 : (response?.data?.pagination?.pages || 1)
-     );
-    } catch (err) {
-     console.error('Erro ao buscar /prompts:', err?.response?.status, err?.response?.data || err?.message);
-      if (cancelled) return;
-      setPrompts([]);
-      setTotalPages(1);
-    } finally {
-      if (cancelled) return;
-      setLoading(false);
-      setFiltersLoading(false);
-    }
-  };
-  load();
-  return () => { cancelled = true; };
+        const raw = Array.isArray(response?.data) ? response.data : (response?.data?.prompts || []);
+        const normalized = (raw || []).map(normalizePrompt);
+        const withLocalLiked = mergeIsLikedInList(normalized);
+        const withDeltaLikes = withLocalLiked.map((p) => ({
+          ...p,
+          likes: (Number(p.likes) || 0) + getLocalLikeDelta(p.id),
+        }));
+        setPrompts(withDeltaLikes);
+        setTotalPages(Array.isArray(response?.data) ? 1 : (response?.data?.pagination?.pages || 1));
+      } catch (err) {
+        console.error('Erro ao buscar /prompts:', err?.response?.status, err?.response?.data || err?.message);
+        if (cancelled) return;
+        setPrompts([]);
+        setTotalPages(1);
+      } finally {
+        if (cancelled) return;
+        setLoading(false);
+        setFiltersLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, selectedCategory, sortBy, page, onlyMine, user]);
 
-
-  // CATEGORIAS (cacheadas)
+  // CATEGORIAS
   useEffect(() => {
     let cancelled = false;
     const loadCategories = async () => {
@@ -200,9 +174,6 @@ useEffect(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // (normalizePrompt is declared above)
-
-
   const updateSearchParams = (params) => {
     const newParams = new URLSearchParams(searchParams);
     Object.entries(params).forEach(([key, value]) => {
@@ -235,7 +206,6 @@ useEffect(() => {
     if (!target) return;
     if (target.isLiked || hasLikedPrompt(promptId)) return;
 
-    // UI otimista
     setPrompts((prev) =>
       prev.map((p) =>
         p.id === promptId
@@ -266,12 +236,9 @@ useEffect(() => {
     if (checked && user?.id) {
       updateSearchParams({ author: user.id, page: 1 });
     } else {
-      // remove author param
       updateSearchParams({ author: '', page: 1 });
     }
   };
-
-  // formatTimeAgo é importado de '@/utils/time' e já lida com pluralização e datas inválidas.
 
   const PromptSkeleton = () => (
     <Card className="animate-pulse">
@@ -367,7 +334,7 @@ useEffect(() => {
 
             {/* Filtros Mobile */}
             <div className="lg:hidden">
-              <Sheet open={showFilters} onOpenChange={setShowFilters}>
+              <Sheet open={false} onOpenChange={() => {}}>
                 <SheetTrigger asChild>
                   <Button variant="outline">
                     <Filter className="h-4 w-4 mr-2" />
@@ -416,7 +383,6 @@ useEffect(() => {
                       </Select>
                     </div>
 
-                    {/* Filtro "Meus prompts" no modal mobile */}
                     {user?.id && (
                       <div className="flex items-center space-x-3">
                         <Switch
@@ -445,7 +411,7 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Linha 2: Chips de categorias (sempre visíveis) e filtro "Meus prompts" */}
+          {/* Linha 2: Chips + "Meus prompts" */}
           <div className="flex items-center gap-2 overflow-x-auto py-1">
             <Button
               variant={selectedCategory === '' ? 'secondary' : 'outline'}
@@ -481,7 +447,6 @@ useEffect(() => {
               })
             )}
 
-            {/* Filtro "Meus prompts" */}
             {user?.id && (
               <div className="flex items-center gap-2 ml-4">
                 <Switch
@@ -529,7 +494,6 @@ useEffect(() => {
           </div>
         ) : (
           <>
-            {/* barra de transição durante filtro */}
             {filtersLoading && (
               <div className="mb-4">
                 <div className="h-1 w-full bg-muted overflow-hidden rounded">
@@ -554,15 +518,12 @@ useEffect(() => {
                     const description = prompt?.description ?? prompt?.descricao ?? '';
                     const tags = Array.isArray(prompt?.tags) ? prompt.tags : [];
 
-                    // >>> likes com delta local persistente
                     const likesServer = Number(prompt?.likes ?? 0);
                     const likes = likesServer + getLocalLikeDelta(prompt.id);
 
                     const isLiked = !!(prompt?.isLiked || hasLikedPrompt(prompt.id));
                     const comments = Number(prompt?.comments ?? 0);
                     const createdAt = prompt?.createdAt ?? prompt?.criado_em ?? new Date().toISOString();
-                    // Combine possible fields for author name: prefer `author.name`, fallback to
-                    // `usuarios.nome` or `autor.nome`, and then default to 'Usuário'.
                     const authorName = prompt?.author?.name ?? prompt?.usuarios?.nome ?? prompt?.autor?.nome ?? 'Usuário';
 
                     return (
@@ -644,19 +605,27 @@ useEffect(() => {
             {totalPages > 1 && (
               <div className="flex justify-center">
                 <div className="flex items-center space-x-2">
-                  <Button variant="outline" disabled={page === 1} onClick={() => {
-                    setPage(page - 1);
-                    updateSearchParams({ page: page - 1 });
-                  }}>
+                  <Button
+                    variant="outline"
+                    disabled={page === 1}
+                    onClick={() => {
+                      setPage(page - 1);
+                      updateSearchParams({ page: page - 1 });
+                    }}
+                  >
                     Anterior
                   </Button>
                   <span className="text-sm text-muted-foreground">
                     Página {page} de {totalPages}
                   </span>
-                  <Button variant="outline" disabled={page === totalPages} onClick={() => {
-                    setPage(page + 1);
-                    updateSearchParams({ page: page + 1 });
-                  }}>
+                  <Button
+                    variant="outline"
+                    disabled={page === totalPages}
+                    onClick={() => {
+                      setPage(page + 1);
+                      updateSearchParams({ page: page + 1 });
+                    }}
+                  >
                     Próxima
                   </Button>
                 </div>

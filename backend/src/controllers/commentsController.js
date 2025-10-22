@@ -1,11 +1,19 @@
 import prisma from '../config/database.js';
 
-// Helpers BigInt -> Number para JSON
-const toBig = (v) => (v === null || v === undefined ? v : BigInt(v));
+/**
+ * Helpers seguros p/ tipos e serialização
+ */
+const toBig = (v) => {
+  if (v === null || v === undefined) return v;
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number') return BigInt(v);
+  if (typeof v === 'string' && /^-?\d+$/.test(v.trim())) return BigInt(v.trim());
+  return null;
+};
+
 function serializeBigInt(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return Number(obj);
- 
   if (obj instanceof Date) return obj;
   if (Array.isArray(obj)) return obj.map(serializeBigInt);
   if (typeof obj === 'object') {
@@ -16,112 +24,150 @@ function serializeBigInt(obj) {
   return obj;
 }
 
-// ============================================================
-//  GET /prompts/:promptId/comments
-//  -> NÃO filtra mais por "foi_aprovado"; todos os comentários são visíveis.
-// ============================================================
+/**
+ * GET /prompts/:promptId/comments
+ * Corrige o erro do Prisma usando a relação correta `autor` no modelo `comentarios`
+ * e adapta a resposta para expor `usuarios` (mantendo compatibilidade com o frontend).
+ */
 export const getCommentsByPrompt = async (req, res) => {
   try {
     const { promptId } = req.params;
-    const promptIdNum = toBig(promptId);
+    const promptIdBig = toBig(promptId);
+    if (promptIdBig === null) {
+      return res.status(400).json({ error: 'Parâmetro promptId inválido' });
+    }
 
-    const promptExists = await prisma.prompts.findUnique({
-      where: { id: promptIdNum },
+    // valida existência do prompt
+    const exists = await prisma.prompts.findUnique({
+      where: { id: promptIdBig },
       select: { id: true },
     });
-    if (!promptExists) {
+    if (!exists) {
       return res.status(404).json({ error: 'Prompt não encontrado' });
     }
 
-    const comments = await prisma.comentarios.findMany({
-      where: { prompt_id: promptIdNum, comentario_pai_id: null },
-      include: {
-        usuarios: {
-          select: { id: true, nome: true, avatar: true, cargo: true },
-        },
-        respostas: {
-          include: {
-            usuarios: {
-              select: { id: true, nome: true, avatar: true, cargo: true },
-            },
-            _count: { select: { curtidas: true } },
-          },
-          orderBy: { criado_em: 'asc' },
-        },
+    // Comentários raiz
+    const roots = await prisma.comentarios.findMany({
+      where: { prompt_id: promptIdBig, comentario_pai_id: null },
+      orderBy: { criado_em: 'desc' },
+      select: {
+        id: true,
+        conteudo: true,
+        criado_em: true,
+        atualizado_em: true,
+        autor_id: true,
+        comentario_pai_id: true,
+        // RELAÇÃO CORRETA NO SCHEMA
+        autor: { select: { id: true, nome: true, avatar: true, cargo: true } },
         _count: { select: { curtidas: true } },
       },
-      orderBy: { criado_em: 'desc' },
     });
 
-    // prepara lista de ids pra like do usuário (se houver)
-    const allIds = [];
-    for (const c of comments) {
-      allIds.push(c.id);
-      for (const r of c.respostas) allIds.push(r.id);
+    const parentIds = roots.map((c) => c.id);
+
+    // Respostas (filhos) — consulta separada para evitar dependência de nome de relação opcional
+    let childs = [];
+    if (parentIds.length > 0) {
+      childs = await prisma.comentarios.findMany({
+        where: { comentario_pai_id: { in: parentIds } },
+        orderBy: { criado_em: 'asc' },
+        select: {
+          id: true,
+          conteudo: true,
+          criado_em: true,
+          atualizado_em: true,
+          autor_id: true,
+          comentario_pai_id: true,
+          autor: { select: { id: true, nome: true, avatar: true, cargo: true } },
+          _count: { select: { curtidas: true } },
+        },
+      });
     }
 
+    // Likes do usuário autenticado (se houver)
+    const allIds = [...parentIds, ...childs.map((r) => r.id)];
     let likedSet = new Set();
     if (req.user && allIds.length > 0) {
-      const userLikes = await prisma.curtidas.findMany({
-        where: {
-          usuario_id: toBig(req.user.id),
-          comentario_id: { in: allIds },
-        },
+      const likes = await prisma.curtidas.findMany({
+        where: { usuario_id: toBig(req.user.id), comentario_id: { in: allIds } },
         select: { comentario_id: true },
       });
-      likedSet = new Set(userLikes.map((x) => String(x.comentario_id)));
+      likedSet = new Set(likes.map((x) => String(x.comentario_id)));
     }
 
-    const adapted = comments.map((c) => ({
-      ...c,
-      likes: c._count?.curtidas ?? 0,
-      isLiked: likedSet.has(String(c.id)),
-      respostas: (c.respostas || []).map((r) => ({
-        ...r,
+    // Agrupa filhos pelo pai
+    const childrenByParent = new Map();
+    for (const r of childs) {
+      const arr = childrenByParent.get(String(r.comentario_pai_id)) || [];
+      arr.push({
+        id: r.id,
+        conteudo: r.conteudo,
+        criado_em: r.criado_em,
+        atualizado_em: r.atualizado_em,
+        // Adapta `autor` -> `usuarios` p/ compatibilidade no frontend
+        usuarios: r.autor ? { ...r.autor } : null,
         likes: r._count?.curtidas ?? 0,
         isLiked: likedSet.has(String(r.id)),
-      })),
+      });
+      childrenByParent.set(String(r.comentario_pai_id), arr);
+    }
+
+    // Adapta raízes + respostas (expondo `usuarios`)
+    const adapted = roots.map((c) => ({
+      id: c.id,
+      conteudo: c.conteudo,
+      criado_em: c.criado_em,
+      atualizado_em: c.atualizado_em,
+      usuarios: c.autor ? { ...c.autor } : null,
+      likes: c._count?.curtidas ?? 0,
+      isLiked: likedSet.has(String(c.id)),
+      respostas: childrenByParent.get(String(c.id)) || [],
     }));
 
     return res.json(serializeBigInt({ comments: adapted }));
   } catch (error) {
-    console.error('Erro ao buscar comentários:', error);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
+    console.error('Erro em getCommentsByPrompt:', error);
+    return res.status(500).json({ error: 'Erro interno do servidor ao carregar comentários' });
   }
 };
 
-// ============================================================
-//  POST /prompts/:promptId/comments
-//  -> Sempre salva com "foi_aprovado: true" (sem aprovação prévia).
-// ============================================================
+/**
+ * POST /prompts/:promptId/comments
+ * Cria comentário (ou resposta) já aprovado e retorna estrutura compatível.
+ */
 export const createComment = async (req, res) => {
   try {
     const { promptId } = req.params;
     const { conteudo, comentario_pai_id } = req.body;
 
-    const promptIdNum = toBig(promptId);
-    const parentId = comentario_pai_id ? toBig(comentario_pai_id) : null;
+    const promptIdBig = toBig(promptId);
+    if (promptIdBig === null) return res.status(400).json({ error: 'Parâmetro promptId inválido' });
 
-    const promptExists = await prisma.prompts.findUnique({
-      where: { id: promptIdNum },
+    const parentIdBig = comentario_pai_id != null ? toBig(comentario_pai_id) : null;
+    if (comentario_pai_id != null && parentIdBig === null) {
+      return res.status(400).json({ error: 'comentario_pai_id inválido' });
+    }
+
+    const exists = await prisma.prompts.findUnique({
+      where: { id: promptIdBig },
       select: { id: true },
     });
-    if (!promptExists) {
-      return res.status(404).json({ error: 'Prompt não encontrado' });
-    }
+    if (!exists) return res.status(404).json({ error: 'Prompt não encontrado' });
 
     const comment = await prisma.comentarios.create({
       data: {
-        conteudo,
+        conteudo: String(conteudo ?? '').trim(),
         autor_id: toBig(req.user.id),
-        prompt_id: promptIdNum,
-        comentario_pai_id: parentId,
-        foi_aprovado: true, // <-- sem fila de aprovação
+        prompt_id: promptIdBig,
+        comentario_pai_id: parentIdBig,
+        foi_aprovado: true,
       },
-      include: {
-        usuarios: {
-          select: { id: true, nome: true, avatar: true, cargo: true },
-        },
+      select: {
+        id: true,
+        conteudo: true,
+        criado_em: true,
+        atualizado_em: true,
+        autor: { select: { id: true, nome: true, avatar: true, cargo: true } },
         _count: { select: { curtidas: true } },
       },
     });
@@ -130,47 +176,52 @@ export const createComment = async (req, res) => {
       serializeBigInt({
         message: 'Comentário criado com sucesso',
         comment: {
-          ...comment,
+          id: comment.id,
+          conteudo: comment.conteudo,
+          criado_em: comment.criado_em,
+          atualizado_em: comment.atualizado_em,
+          usuarios: comment.autor ? { ...comment.autor } : null,
           likes: comment._count?.curtidas ?? 0,
           isLiked: false,
+          respostas: [],
         },
       })
     );
   } catch (error) {
     console.error('Erro ao criar comentário:', error);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
+    return res.status(500).json({ error: 'Erro interno do servidor ao criar comentário' });
   }
 };
 
-// ============================================================
-//  PUT /comments/:id
-// ============================================================
+/**
+ * PUT /comments/:id
+ */
 export const updateComment = async (req, res) => {
   try {
     const { id } = req.params;
     const { conteudo } = req.body;
+
     const commentId = toBig(id);
+    if (commentId === null) return res.status(400).json({ error: 'Parâmetro id inválido' });
 
     const existing = await prisma.comentarios.findUnique({
       where: { id: commentId },
-      select: { id: true, autor_id: true, foi_aprovado: true },
+      select: { id: true, autor_id: true },
     });
     if (!existing) return res.status(404).json({ error: 'Comentário não encontrado' });
 
-    if (existing.autor_id !== toBig(req.user.id) && !req.user.e_moderador) {
-      return res.status(403).json({ error: 'Acesso negado' });
-    }
+    const isOwner = String(existing.autor_id) === String(toBig(req.user.id));
+    if (!isOwner && !req.user?.e_moderador) return res.status(403).json({ error: 'Acesso negado' });
 
     const updated = await prisma.comentarios.update({
       where: { id: commentId },
-      data: {
-        conteudo,
-        // não mexe mais em aprovação; comentários já são aprovados por padrão
-      },
-      include: {
-        usuarios: {
-          select: { id: true, nome: true, avatar: true, cargo: true },
-        },
+      data: { conteudo: String(conteudo ?? '').trim() },
+      select: {
+        id: true,
+        conteudo: true,
+        criado_em: true,
+        atualizado_em: true,
+        autor: { select: { id: true, nome: true, avatar: true, cargo: true } },
         _count: { select: { curtidas: true } },
       },
     });
@@ -179,7 +230,11 @@ export const updateComment = async (req, res) => {
       serializeBigInt({
         message: 'Comentário atualizado com sucesso',
         comment: {
-          ...updated,
+          id: updated.id,
+          conteudo: updated.conteudo,
+          criado_em: updated.criado_em,
+          atualizado_em: updated.atualizado_em,
+          usuarios: updated.autor ? { ...updated.autor } : null,
           likes: updated._count?.curtidas ?? 0,
           isLiked: false,
         },
@@ -187,17 +242,18 @@ export const updateComment = async (req, res) => {
     );
   } catch (error) {
     console.error('Erro ao atualizar comentário:', error);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
+    return res.status(500).json({ error: 'Erro interno do servidor ao atualizar comentário' });
   }
 };
 
-// ============================================================
-//  DELETE /comments/:id
-// ============================================================
+/**
+ * DELETE /comments/:id
+ */
 export const deleteComment = async (req, res) => {
   try {
     const { id } = req.params;
     const commentId = toBig(id);
+    if (commentId === null) return res.status(400).json({ error: 'Parâmetro id inválido' });
 
     const existing = await prisma.comentarios.findUnique({
       where: { id: commentId },
@@ -205,27 +261,25 @@ export const deleteComment = async (req, res) => {
     });
     if (!existing) return res.status(404).json({ error: 'Comentário não encontrado' });
 
-    if (existing.autor_id !== toBig(req.user.id) && !req.user.e_moderador) {
-      return res.status(403).json({ error: 'Acesso negado' });
-    }
+    const isOwner = String(existing.autor_id) === String(toBig(req.user.id));
+    if (!isOwner && !req.user?.e_moderador) return res.status(403).json({ error: 'Acesso negado' });
 
     await prisma.comentarios.delete({ where: { id: commentId } });
     return res.json({ message: 'Comentário excluído com sucesso' });
   } catch (error) {
     console.error('Erro ao excluir comentário:', error);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
+    return res.status(500).json({ error: 'Erro interno do servidor ao excluir comentário' });
   }
 };
 
-// ============================================================
-//  POST /comments/:id/like
-//  (mantém a necessidade de usuário logado; se quiser like anônimo,
-//   podemos adaptar depois como fizemos nos prompts)
-// ============================================================
+/**
+ * POST /comments/:id/like
+ */
 export const likeComment = async (req, res) => {
   try {
     const { id } = req.params;
     const commentId = toBig(id);
+    if (commentId === null) return res.status(400).json({ error: 'Parâmetro id inválido' });
 
     const comment = await prisma.comentarios.findUnique({
       where: { id: commentId },
@@ -248,14 +302,11 @@ export const likeComment = async (req, res) => {
     }
 
     await prisma.curtidas.create({
-      data: {
-        usuario_id: toBig(req.user.id),
-        comentario_id: commentId,
-      },
+      data: { usuario_id: toBig(req.user.id), comentario_id: commentId },
     });
     return res.json({ message: 'Comentário curtido', isLiked: true });
   } catch (error) {
     console.error('Erro ao curtir comentário:', error);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
+    return res.status(500).json({ error: 'Erro interno do servidor ao curtir comentário' });
   }
 };

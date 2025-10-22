@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { 
   ArrowRight, 
   Brain, 
   Shield, 
   Users, 
   TrendingUp,
+  Lightbulb,
   Clock,
   Eye,
   MessageCircle,
@@ -33,9 +34,89 @@ const Home = () => {
 
   const { isAuthenticated } = useAuth();
   const ran = useRef(false); // evita chamadas duplicadas (Strict Mode)
+  const navigate = useNavigate();
 
-  // O mapeamento categoryIcons/categoryColors foi movido para o componente
-  // CategoriesCarousel; mantenha esta página enxuta.
+  // Navegar para /prompts com o filtro de categoria aplicado
+  const handleCategoryClick = (category) => {
+    const name =
+      (typeof category === 'string' && category) ||
+      category?.slug ||
+      category?.nome ||
+      category?.name ||
+      category?.titulo ||
+      '';
+    const count =
+      typeof category === 'object'
+        ? Number(
+            category?.totalPrompts ??
+              category?.promptsCount ??
+              category?._count?.prompts ??
+              category?.total_prompts ??
+              category?.count ??
+              0
+          )
+        : undefined;
+
+    if (!name) return;
+    if (typeof count === 'number' && count <= 0) return;
+
+    const qs = new URLSearchParams();
+    qs.set('category', name);
+    navigate(`/prompts?${qs.toString()}`);
+  };
+
+  // Monta URL de prompts com filtros (categoria e/ou busca) a partir de um payload de prompt
+  const buildPromptsURLWithFilters = (payload) => {
+    const qs = new URLSearchParams();
+    const category =
+      payload?.categoria ??
+      payload?.category ??
+      payload?.especialidade ??
+      payload?.specialty ??
+      payload?.prompt?.categoria ??
+      payload?.prompt?.category ??
+      '';
+    const title =
+      payload?.titulo ??
+      payload?.title ??
+      payload?.prompt?.titulo ??
+      payload?.prompt?.title ??
+      '';
+
+    if (category) qs.set('category', String(category));
+    if (title) qs.set('search', String(title));
+
+    // fallback: se não houve nenhum filtro identificável, retorna a listagem simples
+    return qs.toString() ? `/prompts?${qs.toString()}` : '/prompts';
+  };
+
+  // Resolve a URL de navegação para cada atividade recente
+  const resolveActivityLink = (act) => {
+    const pid = act?.promptId ?? act?.prompt_id ?? act?.prompt?.id;
+    const did = act?.discussionId ?? act?.discussao_id ?? act?.discussion?.id ?? act?.discussao?.id;
+    const postId = act?.postId ?? act?.post_id ?? act?.post?.id;
+
+    switch (act?.type) {
+      case 'prompt':
+        // Para criação de prompt, ir para a página de prompts já com filtros do prompt clicado
+        return buildPromptsURLWithFilters(act);
+      case 'comment':
+        if (pid) return `/prompts/${pid}#comments`;
+        if (did && postId) return `/discussoes/${did}#post-${postId}`;
+        if (did) return `/discussoes/${did}#comments`;
+        return '/prompts';
+      case 'discussion':
+        return did ? `/discussoes/${did}` : '/discussoes';
+      case 'post':
+        if (did && postId) return `/discussoes/${did}#post-${postId}`;
+        if (did) return `/discussoes/${did}`;
+        return '/discussoes';
+      default:
+        if (pid) return `/prompts/${pid}`;
+        if (did) return `/discussoes/${did}`;
+        return '/prompts';
+    }
+  };
 
   useEffect(() => {
     if (ran.current) return;
@@ -44,28 +125,22 @@ const Home = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        // Buscar estatísticas do dashboard. O endpoint retorna campos de nível superior
-        // como totalPrompts, totalActiveUsers, topPrompts, categories e recentActivities.
         const dashboardRes = await statsAPI.getDashboard();
         const dashboardData = dashboardRes?.data ?? {};
 
-        // Ajustar estatísticas gerais (prompts compartilhados e usuários ativos)
         setStats({
           totalPrompts: Number(dashboardData.totalPrompts ?? dashboardData.totals?.prompts ?? 0),
           totalUsers: Number(dashboardData.totalActiveUsers ?? dashboardData.totals?.activeUsers ?? 0),
         });
 
-        // Definir categorias (especialidades) retornadas pelo backend
         setCategories(Array.isArray(dashboardData.categories) ? dashboardData.categories : []);
 
-        // Obter prompts em destaque: prioriza mais curtidos; se todos sem curtidas, usa mais visualizados
+        // Prompts em destaque
         try {
-          // buscar top 3 mais curtidos
           const respPopular = await promptsAPI.getAll({ page: 1, limit: 3, sort: 'popular' }, { meta: { noRedirectOn401: true } });
           const popularList = Array.isArray(respPopular?.data?.prompts)
             ? respPopular.data.prompts
             : Array.isArray(respPopular?.data) ? respPopular.data : [];
-          // normaliza lista
           let list = (popularList || []).map((p) => ({
             id: p.id,
             title: p.titulo ?? p.title ?? '—',
@@ -76,10 +151,8 @@ const Home = () => {
             comments: Number(p._count?.comentarios ?? p.comments ?? 0),
             category: p.categoria ?? p.category ?? '—',
           }));
-          // verifica se todos possuem zero curtidas
           const totalLikes = list.reduce((sum, it) => sum + (Number(it.likes) || 0), 0);
           if (totalLikes === 0) {
-            // fallback para mais visualizados
             const respViews = await promptsAPI.getAll({ page: 1, limit: 3, sort: 'views' }, { meta: { noRedirectOn401: true } });
             const viewsList = Array.isArray(respViews?.data?.prompts)
               ? respViews.data.prompts
@@ -101,7 +174,7 @@ const Home = () => {
           setFeaturedPrompts([]);
         }
 
-        // Processar atividades recentes. O backend retorna um array simples em recentActivities
+        // Atividades recentes
         const activitiesRaw = Array.isArray(dashboardData.recentActivities)
           ? dashboardData.recentActivities
           : [];
@@ -109,10 +182,6 @@ const Home = () => {
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
           .slice(0, 4)
           .map((act) => {
-            
-            // try {
-            //   console.log('Home.jsx recent activity createdAt:', act.createdAt, 'type:', typeof act.createdAt);
-            // } catch {}
             const userName = act.user?.nome ?? act.user?.name ?? 'Usuário';
             let action;
             let item;
@@ -121,8 +190,13 @@ const Home = () => {
               item = act.title ?? 'Prompt';
             } else if (act.type === 'comment') {
               action = 'comentou';
-              // para comentários associamos ao conteúdo ou indicamos genericamente
               item = act.content ? act.content.slice(0, 30) + '…' : 'comentário';
+            } else if (act.type === 'discussion') {
+              action = 'abriu uma discussão';
+              item = act.title ?? 'Discussão';
+            } else if (act.type === 'post') {
+              action = 'respondeu na discussão';
+              item = act.title ?? act.content?.slice(0, 30) + '…' ?? 'Post';
             } else {
               action = 'realizou uma atividade em';
               item = act.title ?? act.content ?? 'item';
@@ -134,6 +208,8 @@ const Home = () => {
               time: new Date(act.createdAt),
               timeLabel: formatTimeAgo(act.createdAt),
               type: act.type,
+              // preserva o payload para resolver o link depois
+              payload: act
             };
           });
         setRecentActivities(adaptedActivities);
@@ -221,8 +297,8 @@ const Home = () => {
             <div className="grid grid-cols-2 gap-4">
               <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
                 <CardContent className="p-6">
-                  <div className="w-12 h-12 bg-accent/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-accent/20 transition-colors duration-300">
-                    <Brain className="h-6 w-6 text-accent group-hover:scale-110 transition-transform duration-300" />
+                  <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
+                    <Brain className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
                   </div>
                   <h3 className="font-semibold mb-2 text-foreground">IA Aplicada</h3>
                   <p className="text-sm text-muted-foreground">Prompts práticos para investigações</p>
@@ -230,17 +306,8 @@ const Home = () => {
               </Card>
               <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
                 <CardContent className="p-6">
-                  <div className="w-12 h-12 bg-green-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-green-500/20 transition-colors duration-300">
-                    <Users className="h-6 w-6 text-green-600 group-hover:scale-110 transition-transform duration-300" />
-                  </div>
-                  <h3 className="font-semibold mb-2 text-foreground">Colaboração</h3>
-                  <p className="text-sm text-muted-foreground">Compartilhamento de conhecimento</p>
-                </CardContent>
-              </Card>
-              <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-                <CardContent className="p-6">
-                  <div className="w-12 h-12 bg-red-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-red-500/20 transition-colors duration-300">
-                    <Shield className="h-6 w-6 text-red-600 group-hover:scale-110 transition-transform duration-300" />
+                  <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
+                    <Shield className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
                   </div>
                   <h3 className="font-semibold mb-2 text-foreground">Ética</h3>
                   <p className="text-sm text-muted-foreground">Uso responsável da tecnologia</p>
@@ -248,8 +315,17 @@ const Home = () => {
               </Card>
               <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
                 <CardContent className="p-6">
-                  <div className="w-12 h-12 bg-purple-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-purple-500/20 transition-colors duration-300">
-                    <TrendingUp className="h-6 w-6 text-purple-600 group-hover:scale-110 transition-transform duration-300" />
+                  <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
+                    <Users className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
+                  </div>
+                  <h3 className="font-semibold mb-2 text-foreground">Colaboração</h3>
+                  <p className="text-sm text-muted-foreground">Compartilhamento de conhecimento</p>
+                </CardContent>
+              </Card>
+              <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+                <CardContent className="p-6">
+                  <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
+                    <Lightbulb className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
                   </div>
                   <h3 className="font-semibold mb-2 text-foreground">Inovação</h3>
                   <p className="text-sm text-muted-foreground">Métodos modernos de investigação</p>
@@ -319,11 +395,11 @@ const Home = () => {
                         {prompt.author?.name || prompt.author}
                       </span>
                       <div className="flex items-center space-x-3 text-sm text-muted-foreground">
-                        <div className="flex items-center hover:text-accent transition-colors cursor-pointer">
+                        <div className="flex items-center hover:text-accent transition-colors ">
                           <ThumbsUp className="h-4 w-4 mr-1" />
                           {prompt.likes}
                         </div>
-                        <div className="flex items-center hover:text-accent transition-colors cursor-pointer">
+                        <div className="flex items-center hover:text-accent transition-colors ">
                           <MessageCircle className="h-4 w-4 mr-1" />
                           {prompt.comments}
                         </div>
@@ -354,98 +430,121 @@ const Home = () => {
             <p className="text-lg text-muted-foreground">Explore prompts organizados por área de atuação</p>
           </div>
           
-          <CategoriesCarousel categories={categories} />
+          <CategoriesCarousel
+            categories={categories}
+            onCategoryClick={handleCategoryClick}
+            onSelect={handleCategoryClick}
+          />
         </div>
       </section>
 
-      {/* Atividades Recentes */}
+      {/* Atividades Recentes (com links e seta) */}
       <section className="py-16">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
             <div className="lg:col-span-2">
               <h2 className="text-2xl font-bold text-foreground mb-8">Atividades Recentes</h2>
               <div className="space-y-4">
-                {recentActivities.map((activity, index) => (
-                  <Card key={index} className="group hover:shadow-md transition-all duration-300 hover:border-accent/20">
-                    <CardContent className="p-4">
-                      <div className="flex items-start space-x-4">
-                        <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center group-hover:bg-accent/20 transition-colors duration-300">
-                          
-                          {(() => {
-                            const name = activity.user || '';
-                            const parts = name.split(' ').filter(Boolean);
-                            // Se houver apenas um nome, pega as duas primeiras letras; caso contrário, pega a inicial dos dois primeiros nomes
-                            const initials = parts.length <= 1
-                              ? name.substring(0, 2)
-                              : parts.slice(0, 2).map((p) => p[0]).join('');
-                            return (
-                              <span className="text-accent font-semibold text-sm group-hover:scale-110 transition-transform duration-300">
-                                {initials.toUpperCase()}
-                              </span>
-                            );
-                          })()}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-foreground">
-                            <span className="font-medium text-accent">{activity.user}</span> {activity.action}{' '}
-                            <span className="font-medium text-foreground hover:text-accent transition-colors cursor-pointer">{activity.item}</span>
-                          </p>
-                          <div className="flex items-center mt-2 text-sm text-muted-foreground">
-                            <Clock className="h-3 w-3 mr-1" />
-                            {activity.timeLabel}
-                          </div>
+                {recentActivities.map((activity, index) => {
+                  const url = resolveActivityLink(activity.payload || {});
+                  const content = (
+                    <>
+                      <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center group-hover:bg-accent/20 transition-colors duration-300">
+                        {(() => {
+                          const name = activity.user || '';
+                          const parts = name.split(' ').filter(Boolean);
+                          const initials = parts.length <= 1
+                            ? name.substring(0, 2)
+                            : parts.slice(0, 2).map((p) => p[0]).join('');
+                          return (
+                            <span className="text-accent font-semibold text-sm group-hover:scale-110 transition-transform duration-300">
+                              {initials.toUpperCase()}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-foreground">
+                          <span className="font-medium text-accent">{activity.user}</span> {activity.action}{' '}
+                          <span className="font-medium text-foreground group-hover:text-accent transition-colors cursor-pointer">{activity.item}</span>
+                        </p>
+                        <div className="flex items-center mt-2 text-sm text-muted-foreground">
+                          <Clock className="h-3 w-3 mr-1" />
+                          {activity.timeLabel}
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                    </>
+                  );
+
+                  return (
+                    <Card key={index} className="group hover:shadow-md transition-all duration-300 hover:border-accent/20">
+                      <CardContent className="p-4">
+                        <div className="flex items-start space-x-4">
+                          {/* Clique no texto leva para a página referente */}
+                          <Link to={url} className="flex items-start space-x-4 flex-1 no-underline">
+                            {content}
+                          </Link>
+
+                          {/* Ícone seta -> alinhado à direita, mesmo link */}
+                          <Link
+                            to={url}
+                            aria-label="Abrir item"
+                            className="self-center text-muted-foreground hover:text-accent transition-colors"
+                          >
+                            <ArrowRight className="h-5 w-5 group-hover:translate-x-0.5 transition-transform" />
+                          </Link>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </div>
             
             <div>
               <h2 className="text-2xl font-bold text-foreground mb-8">Links Úteis</h2>
               <div className="space-y-4">
-                <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-blue-500">
+                <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-yellow-500">
                   <CardContent className="p-4">
                     <Link to="/boas-praticas" className="flex items-center">
-                      <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center mr-3 group-hover:bg-blue-500/20 transition-colors duration-300">
-                        <BookOpen className="h-5 w-5 text-blue-500 group-hover:scale-110 transition-transform duration-300" />
+                      <div className="w-10 h-10 bg-yellow-500/10 rounded-lg flex items-center justify-center mr-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
+                        <BookOpen className="h-5 w-5 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-medium text-foreground group-hover:text-blue-500 transition-colors duration-300">Boas Práticas</h3>
+                        <h3 className="font-medium text-foreground group-hover:text-yellow-500 transition-colors duration-300">Boas Práticas</h3>
                         <p className="text-sm text-muted-foreground">Guias para uso ético da IA</p>
                       </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-blue-500 group-hover:translate-x-1 transition-all duration-300" />
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-yellow-500 group-hover:translate-x-1 transition-all duration-300" />
                     </Link>
                   </CardContent>
                 </Card>
                 
-                <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-green-500">
+                <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-yellow-500">
                   <CardContent className="p-4">
                     <Link to="/discussoes" className="flex items-center">
-                      <div className="w-10 h-10 bg-green-500/10 rounded-lg flex items-center justify-center mr-3 group-hover:bg-green-500/20 transition-colors duration-300">
-                        <MessageCircle className="h-5 w-5 text-green-500 group-hover:scale-110 transition-transform duration-300" />
+                      <div className="w-10 h-10 bg-yellow-500/10 rounded-lg flex items-center justify-center mr-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
+                        <MessageCircle className="h-5 w-5 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-medium text-foreground group-hover:text-green-500 transition-colors duration-300">Fórum de Discussões</h3>
+                        <h3 className="font-medium text-foreground group-hover:text-yellow-500 transition-colors duration-300">Fórum de Discussões</h3>
                         <p className="text-sm text-muted-foreground">Participe das conversas</p>
                       </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-green-500 group-hover:translate-x-1 transition-all duration-300" />
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-yellow-500 group-hover:translate-x-1 transition-all duration-300" />
                     </Link>
                   </CardContent>
                 </Card>
                 
-                <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-purple-500">
+                <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-yellow-500">
                   <CardContent className="p-4">
                     <Link to="/sobre" className="flex items-center">
-                      <div className="w-10 h-10 bg-purple-500/10 rounded-lg flex items-center justify-center mr-3 group-hover:bg-purple-500/20 transition-colors duration-300">
-                        <Globe className="h-5 w-5 text-purple-500 group-hover:scale-110 transition-transform duration-300" />
+                      <div className="w-10 h-10 bg-yellow-500/10 rounded-lg flex items-center justify-center mr-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
+                        <Globe className="h-5 w-5 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-medium text-foreground group-hover:text-purple-500 transition-colors duration-300">Sobre o Projeto</h3>
+                        <h3 className="font-medium text-foreground group-hover:text-yellow-500 transition-colors duração-300">Sobre o Projeto</h3>
                         <p className="text-sm text-muted-foreground">Conheça nossa missão</p>
                       </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-purple-500 group-hover:translate-x-1 transition-all duration-300" />
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-yellow-500 group-hover:translate-x-1 transition-all duração-300" />
                     </Link>
                   </CardContent>
                 </Card>

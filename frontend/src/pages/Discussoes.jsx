@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { 
   MessageCircle, 
   Plus, 
-  User, 
   Clock, 
   Eye, 
   ThumbsUp, 
@@ -20,6 +19,7 @@ import { toast } from 'sonner';
 import { discussionsAPI } from '@/lib/api';
 import { Switch } from '@/components/ui/switch';
 import { formatTimeAgo } from '@/utils/time';
+import UserAvatar from '@/components/UserAvatar';
 
 const Discussoes = () => {
   const [discussions, setDiscussions] = useState([]);
@@ -268,12 +268,13 @@ const Discussoes = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
                       <div className="flex items-center">
-                        <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center mr-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">{discussion.author.name}</p>
-                          <p className="text-xs text-muted-foreground">
+                        {/* Exibir avatar ou iniciais do autor */}
+                        <UserAvatar user={discussion.author} size="sm" />
+                        <div className="ml-2">
+                          <p className="text-sm font-medium text-foreground">
+                            {discussion.author?.name || 'Usuário'}
+                          </p>
+                          <p className="text-xs text-muted-foreground flex items-center">
                             <Clock className="h-3 w-3 inline mr-1" />
                             {formatTimeAgo(discussion.createdAt)}
                           </p>

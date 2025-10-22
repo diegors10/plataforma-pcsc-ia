@@ -1,174 +1,231 @@
-// backend/src/controllers/postsController.js
 import prisma from '../config/database.js';
 
-// util: converte querystring para int seguro
-const toInt = (v, def) => {
-  const n = parseInt(v, 10);
-  return Number.isFinite(n) && n > 0 ? n : def;
+// ===== Helpers =====
+const toBig = (v) => {
+  if (v === null || v === undefined) return v;
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number') return BigInt(v);
+  if (typeof v === 'string' && /^-?\d+$/.test(v.trim())) return BigInt(v.trim());
+  return null;
 };
 
-// GET /api/posts/discussion/:discussionId
-export const getPostsByDiscussion = async (req, res) => {
-  try {
-    const { discussionId } = req.params;
-    const page = toInt(req.query.page, 1);
-    const limit = toInt(req.query.limit, 20);
-    const skip = (page - 1) * limit;
-
-    const discussao = await prisma.discussoes.findUnique({
-      where: { id: Number(discussionId) },
-      select: { id: true },
-    });
-    if (!discussao) return res.status(404).json({ message: 'Discussão não encontrada' });
-
-    const [total, posts] = await Promise.all([
-      prisma.postagens.count({ where: { discussao_id: Number(discussionId) } }),
-      prisma.postagens.findMany({
-        where: { discussao_id: Number(discussionId) },
-        orderBy: { criado_em: 'asc' },
-        skip,
-        take: limit,
-        select: {
-          id: true,
-          conteudo: true,
-          likes: true,
-          criado_em: true,
-          atualizado_em: true,
-          usuarios: { select: { id: true, nome: true, avatar: true, cargo: true, departamento: true } },
-        },
-      }),
-    ]);
-
-    return res.json({
-      posts,
-      pagination: { total, page, limit, pages: Math.max(1, Math.ceil(total / limit)) },
-    });
-  } catch (err) {
-    console.error('[postsController.getPostsByDiscussion]', err);
-    return res.status(500).json({ message: 'Erro ao listar posts da discussão' });
+function serializeBigInt(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'bigint') return Number(obj);
+  if (obj instanceof Date) return obj;
+  if (Array.isArray(obj)) return obj.map(serializeBigInt);
+  if (typeof obj === 'object') {
+    const out = {};
+    for (const k of Object.keys(obj)) out[k] = serializeBigInt(obj[k]);
+    return out;
   }
-};
+  return obj;
+}
 
-// POST /api/posts/discussion/:discussionId
+/**
+ * Constrói DTO de Post compatível com o frontend (usa `usuarios` como autor)
+ */
+const buildPostDTO = (row, author, counts = { curtidas: 0, comentarios: 0 }, isLiked = false) => ({
+  id: row.id,
+  conteudo: row.conteudo,
+  criado_em: row.criado_em,
+  atualizado_em: row.atualizado_em,
+  usuarios: author
+    ? {
+        id: author.id,
+        nome: author.nome,
+        avatar: author.avatar,
+        cargo: author.cargo,
+        departamento: author.departamento ?? null,
+      }
+    : null,
+  likes: counts.curtidas ?? 0,
+  comments: counts.comentarios ?? 0,
+  isLiked,
+});
+
+// ===================================================================
+// POST /api/discussions/:id/posts
+// Cria uma nova postagem dentro de uma discussão.
+// -> Usa RELAÇÕES obrigatórias `autor` e `discussao` com connect:{ id }.
+// ===================================================================
 export const createPost = async (req, res) => {
   try {
-    const { discussionId } = req.params;
+    const { id } = req.params; // discussao_id (na URL)
     const { conteudo } = req.body;
 
-    if (!conteudo || !conteudo.trim()) return res.status(400).json({ message: 'Conteúdo é obrigatório' });
-    const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ message: 'Não autenticado' });
+    const discussaoId = toBig(id);
+    const autorId = toBig(req.user?.id);
 
-    const discussao = await prisma.discussoes.findUnique({
-      where: { id: Number(discussionId) },
-      select: { id: true },
+    if (discussaoId === null) {
+      return res.status(400).json({ error: 'Parâmetro id (discussão) inválido' });
+    }
+    if (!conteudo || String(conteudo).trim() === '') {
+      return res.status(400).json({ error: 'Conteúdo obrigatório' });
+    }
+    if (autorId === null) {
+      return res.status(401).json({ error: 'Usuário não autenticado' });
+    }
+
+    // Garante que a discussão existe
+    const discussion = await prisma.discussoes.findUnique({
+      where: { id: discussaoId },
+      select: { id: true }
     });
-    if (!discussao) return res.status(404).json({ message: 'Discussão não encontrada' });
+    if (!discussion) {
+      return res.status(404).json({ error: 'Discussão não encontrada' });
+    }
 
+    // IMPORTANTE: quando o schema usa relação implícita/obrigatória,
+    // é necessário conectar via `discussao: { connect: { id } }` (não usar discussao_id),
+    // e também via `autor: { connect: { id } }`.
     const created = await prisma.postagens.create({
       data: {
-        conteudo: conteudo.trim(),
-        discussao_id: Number(discussionId),
-        usuario_id: Number(userId),
-        likes: 0,
+        conteudo: String(conteudo).trim(),
+        foi_aprovado: true,
+        autor: { connect: { id: autorId } },
+        discussao: { connect: { id: discussaoId } },
       },
       select: {
         id: true,
         conteudo: true,
-        likes: true,
         criado_em: true,
         atualizado_em: true,
-        usuarios: { select: { id: true, nome: true, avatar: true, cargo: true, departamento: true } },
-      },
+        autor_id: true,
+        _count: { select: { curtidas: true, comentarios: true } },
+      }
     });
 
-    return res.status(201).json({ post: created });
-  } catch (err) {
-    console.error('[postsController.createPost]', err);
-    return res.status(500).json({ message: 'Erro ao criar post' });
+    // Resolve autor via tabela usuarios
+    const author = await prisma.usuarios.findUnique({
+      where: { id: created.autor_id },
+      select: { id: true, nome: true, avatar: true, cargo: true, departamento: true }
+    });
+
+    const postDTO = buildPostDTO(created, author, created._count, false);
+    return res.status(201).json(serializeBigInt({ message: 'Post criado com sucesso', post: postDTO }));
+  } catch (error) {
+    console.error('[postsController.createPost]', error);
+    return res.status(500).json({ error: 'Erro interno do servidor ao criar post' });
   }
 };
 
-// PUT /api/posts/:id
+// ===================================================================
+// PUT /api/posts/:postId
+// Edita o conteúdo de uma postagem (autor ou moderador/admin).
+// ===================================================================
 export const updatePost = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { postId } = req.params;
     const { conteudo } = req.body;
 
-    if (!conteudo || !conteudo.trim()) return res.status(400).json({ message: 'Conteúdo é obrigatório' });
-
-    const post = await prisma.postagens.findUnique({ where: { id: Number(id) }, select: { id: true, usuario_id: true } });
-    if (!post) return res.status(404).json({ message: 'Post não encontrado' });
-
-    const userId = req.user?.id;
-    const isAdmin = req.user?.papel === 'ADMIN';
-    if (!isAdmin && Number(post.usuario_id) !== Number(userId)) {
-      return res.status(403).json({ message: 'Sem permissão para editar este post' });
+    const pid = toBig(postId);
+    if (pid === null) return res.status(400).json({ error: 'Parâmetro postId inválido' });
+    if (!conteudo || String(conteudo).trim() === '') {
+      return res.status(400).json({ error: 'Conteúdo obrigatório' });
     }
 
+    const existing = await prisma.postagens.findUnique({
+      where: { id: pid },
+      select: { id: true, autor_id: true }
+    });
+    if (!existing) return res.status(404).json({ error: 'Post não encontrado' });
+
+    const currentUserId = toBig(req.user?.id);
+    const isOwner = currentUserId && String(existing.autor_id) === String(currentUserId);
+    const canEdit = isOwner || req.user?.e_moderador || req.user?.e_admin;
+    if (!canEdit) return res.status(403).json({ error: 'Acesso negado' });
+
     const updated = await prisma.postagens.update({
-      where: { id: Number(id) },
-      data: { conteudo: conteudo.trim() },
+      where: { id: pid },
+      data: { conteudo: String(conteudo).trim() },
       select: {
         id: true,
         conteudo: true,
-        likes: true,
         criado_em: true,
         atualizado_em: true,
-        usuarios: { select: { id: true, nome: true, avatar: true, cargo: true, departamento: true } },
-      },
+        autor_id: true,
+        _count: { select: { curtidas: true, comentarios: true } },
+      }
     });
 
-    return res.json({ post: updated });
-  } catch (err) {
-    console.error('[postsController.updatePost]', err);
-    return res.status(500).json({ message: 'Erro ao atualizar post' });
+    const author = await prisma.usuarios.findUnique({
+      where: { id: updated.autor_id },
+      select: { id: true, nome: true, avatar: true, cargo: true, departamento: true }
+    });
+
+    const postDTO = buildPostDTO(updated, author, updated._count, false);
+    return res.json(serializeBigInt({ message: 'Post atualizado com sucesso', post: postDTO }));
+  } catch (error) {
+    console.error('[postsController.updatePost]', error);
+    return res.status(500).json({ error: 'Erro interno do servidor ao atualizar post' });
   }
 };
 
-// DELETE /api/posts/:id
+// ===================================================================
+// DELETE /api/posts/:postId
+// Exclui uma postagem (autor ou moderador/admin).
+// ===================================================================
 export const deletePost = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { postId } = req.params;
+    const pid = toBig(postId);
+    if (pid === null) return res.status(400).json({ error: 'Parâmetro postId inválido' });
 
-    const post = await prisma.postagens.findUnique({ where: { id: Number(id) }, select: { id: true, usuario_id: true } });
-    if (!post) return res.status(404).json({ message: 'Post não encontrado' });
+    const existing = await prisma.postagens.findUnique({
+      where: { id: pid },
+      select: { id: true, autor_id: true }
+    });
+    if (!existing) return res.status(404).json({ error: 'Post não encontrado' });
 
-    const userId = req.user?.id;
-    const isAdmin = req.user?.papel === 'ADMIN';
-    if (!isAdmin && Number(post.usuario_id) !== Number(userId)) {
-      return res.status(403).json({ message: 'Sem permissão para excluir este post' });
-    }
+    const currentUserId = toBig(req.user?.id);
+    const isOwner = currentUserId && String(existing.autor_id) === String(currentUserId);
+    const canDelete = isOwner || req.user?.e_moderador || req.user?.e_admin;
+    if (!canDelete) return res.status(403).json({ error: 'Acesso negado' });
 
-    await prisma.postagens.delete({ where: { id: Number(id) } });
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error('[postsController.deletePost]', err);
-    return res.status(500).json({ message: 'Erro ao excluir post' });
+    await prisma.postagens.delete({ where: { id: pid } });
+    return res.json({ message: 'Post excluído com sucesso' });
+  } catch (error) {
+    console.error('[postsController.deletePost]', error);
+    return res.status(500).json({ error: 'Erro interno do servidor ao excluir post' });
   }
 };
 
-// POST /api/posts/:id/like  (toggle simples via ?dir=inc|dec)
+// ===================================================================
+// POST /api/posts/:postId/like
+// Alterna curtida do post para o usuário autenticado.
+// ===================================================================
 export const likePost = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { postId } = req.params;
+    const pid = toBig(postId);
+    const uid = toBig(req.user?.id);
 
-    const post = await prisma.postagens.findUnique({ where: { id: Number(id) }, select: { id: true, likes: true } });
-    if (!post) return res.status(404).json({ message: 'Post não encontrado' });
+    if (pid === null) return res.status(400).json({ error: 'Parâmetro postId inválido' });
+    if (uid === null) return res.status(401).json({ error: 'Usuário não autenticado' });
 
-    const dir = (req.query?.dir || 'inc').toLowerCase();
-    const delta = dir === 'dec' ? -1 : 1;
-    const nextLikes = Math.max(0, (post.likes || 0) + delta);
+    const post = await prisma.postagens.findUnique({
+      where: { id: pid },
+      select: { id: true }
+    });
+    if (!post) return res.status(404).json({ error: 'Post não encontrado' });
 
-    const updated = await prisma.postagens.update({
-      where: { id: Number(id) },
-      data: { likes: nextLikes },
-      select: { id: true, likes: true },
+    const existing = await prisma.curtidas.findFirst({
+      where: { postagem_id: pid, usuario_id: uid },
+      select: { id: true }
     });
 
-    return res.json({ id: updated.id, likes: updated.likes });
-  } catch (err) {
-    console.error('[postsController.likePost]', err);
-    return res.status(500).json({ message: 'Erro ao curtir post' });
+    if (existing) {
+      await prisma.curtidas.delete({ where: { id: existing.id } });
+      return res.json({ message: 'Curtida removida', isLiked: false });
+    }
+
+    await prisma.curtidas.create({
+      data: { postagem_id: pid, usuario_id: uid }
+    });
+    return res.json({ message: 'Post curtido', isLiked: true });
+  } catch (error) {
+    console.error('[postsController.likePost]', error);
+    return res.status(500).json({ error: 'Erro interno do servidor ao curtir post' });
   }
 };

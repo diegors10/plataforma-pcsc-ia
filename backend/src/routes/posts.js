@@ -3,22 +3,22 @@ import { body, param } from 'express-validator';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { handleValidationErrors, sanitizeInput } from '../middleware/validation.js';
 import {
-  getPostsByDiscussion,
   createPost,
   updatePost,
   deletePost,
   likePost,
 } from '../controllers/postsController.js';
+import { getPostsByDiscussion } from '../controllers/discussionsController.js';
 
 const router = express.Router();
 
 // Validações
 const discussionIdParam = [
-  param('discussionId').isInt({ min: 1 }).withMessage('ID da discussão deve ser um inteiro positivo')
+  param('id').isInt({ min: 1 }).withMessage('ID da discussão deve ser um inteiro positivo')
 ];
 
 const postIdParam = [
-  param('id').isInt({ min: 1 }).withMessage('ID da postagem deve ser um inteiro positivo')
+  param('postId').isInt({ min: 1 }).withMessage('ID da postagem deve ser um inteiro positivo')
 ];
 
 const postContentValidation = [
@@ -29,14 +29,18 @@ const postContentValidation = [
 ];
 
 // Rotas
-router.get('/discussions/:discussionId/posts',
+// GET posts da discussão (usa controller em discussionsController; param esperado: :id)
+router.get(
+  '/discussions/:id/posts',
   optionalAuth,
   discussionIdParam,
   handleValidationErrors,
   getPostsByDiscussion
 );
 
-router.post('/discussions/:discussionId/posts',
+// Criar novo post na discussão (postsController.createPost espera param :id)
+router.post(
+  '/discussions/:id/posts',
   authenticateToken,
   sanitizeInput,
   discussionIdParam,
@@ -45,7 +49,9 @@ router.post('/discussions/:discussionId/posts',
   createPost
 );
 
-router.put('/posts/:id',
+// Atualizar post (postsController.updatePost espera param :postId)
+router.put(
+  '/posts/:postId',
   authenticateToken,
   sanitizeInput,
   postIdParam,
@@ -54,14 +60,18 @@ router.put('/posts/:id',
   updatePost
 );
 
-router.delete('/posts/:id',
+// Excluir post (postsController.deletePost espera param :postId)
+router.delete(
+  '/posts/:postId',
   authenticateToken,
   postIdParam,
   handleValidationErrors,
   deletePost
 );
 
-router.post('/posts/:id/like',
+// Curtir/Descurtir post (postsController.likePost espera param :postId)
+router.post(
+  '/posts/:postId/like',
   authenticateToken,
   postIdParam,
   handleValidationErrors,
