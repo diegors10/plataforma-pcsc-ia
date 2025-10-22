@@ -111,7 +111,7 @@ const Discussoes = () => {
         titulo: newDiscussionTitle.trim(),
         descricao: newDiscussionContent.trim(),
         categoria: 'Geral',
-        e_aberta: isOpen
+        e_aberta: !isOpen
       };
       const response = await discussionsAPI.create(payload);
       const created = response.data.discussion;
@@ -204,8 +204,8 @@ const Discussoes = () => {
                   className="text-sm text-muted-foreground cursor-pointer select-none"
                 >
                   {isOpen
-                    ? 'Discussão aberta – qualquer usuário pode curtir e comentar'
-                    : 'Discussão fechada – somente usuários logados podem interagir'}
+                    ? 'Discussão fechada – somente usuários logados podem interagir'
+                    : 'Discussão aberta – qualquer usuário pode curtir e comentar'}
                 </label>
               </div>
               <div className="flex justify-end">
