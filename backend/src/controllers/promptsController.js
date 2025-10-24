@@ -3,7 +3,7 @@ import prisma from '../config/database.js';
 // ==============================
 // Helpers para BigInt / tipos
 // ==============================
-const toBig = (v) => (v === null || v === undefined ? v : BigInt(v));
+const toBig = (v) => (v === null || v === undefined || v === '' ? null : BigInt(v));
 const toNum = (v, def = 0) => (typeof v === 'bigint' ? Number(v) : (v ?? def));
 
 function serializeBigInt(obj) {
@@ -17,6 +17,17 @@ function serializeBigInt(obj) {
     return out;
   }
   return obj;
+}
+
+// Normaliza diferentes nomes usados no frontend para o ID da especialidade
+// Aceita: especialidade_id | especialidadeId | specialty_id | specialtyId
+function getEspecialidadeId(body) {
+  const raw =
+    body?.especialidade_id ??
+    body?.especialidadeId ??
+    body?.specialty_id ??
+    body?.specialtyId;
+  return toBig(raw); // retorna BigInt ou null
 }
 
 // ==============================
@@ -92,7 +103,8 @@ export const getAllPrompts = async (req, res) => {
           visualizacoes: true,
           criado_em: true,
           atualizado_em: true,
-          // >>> CORREÇÃO: garantir relação do autor
+          especialidade_id: true, // <<< RETORNAR O ID DA ESPECIALIDADE NA LISTA
+          // >>> relação do autor
           autor: {
             select: { id: true, nome: true, avatar: true, cargo: true },
           },
@@ -174,7 +186,8 @@ export const getPromptById = async (req, res) => {
         visualizacoes: true,
         criado_em: true,
         atualizado_em: true,
-        // >>> CORREÇÃO: garantir relação do autor completa
+        especialidade_id: true, // <<< RETORNAR O ID DA ESPECIALIDADE NO DETALHE
+        // >>> relação do autor completa
         autor: {
           select: {
             id: true,
@@ -226,6 +239,7 @@ export const getPromptById = async (req, res) => {
         conteudo: prompt.conteudo,
         categoria: prompt.categoria,
         tags: prompt.tags,
+        especialidade_id: prompt.especialidade_id, // <<< EXPOSTO NO PAYLOAD
         // somamos +1 em views após o update
         visualizacoes: toNum(prompt.visualizacoes, 0) + 1,
         criadoEm: prompt.criado_em,
@@ -245,7 +259,8 @@ export const getPromptById = async (req, res) => {
 
 // ==============================
 // POST /api/prompts
-// Cria prompt conectando autor corretamente e retornando autor no payload
+// Cria prompt conectando autor corretamente e RETORNANDO especialidade_id
+// Aceita diferentes nomes para o ID da especialidade (ver getEspecialidadeId)
 // ==============================
 export const createPrompt = async (req, res) => {
   try {
@@ -255,9 +270,10 @@ export const createPrompt = async (req, res) => {
       conteudo,
       categoria,
       tags,
-      especialidade_id,
       e_publico = true,
     } = req.body;
+
+    const espId = getEspecialidadeId(req.body); // <<< NORMALIZA O ID
 
     const created = await prisma.prompts.create({
       data: {
@@ -266,7 +282,7 @@ export const createPrompt = async (req, res) => {
         conteudo,
         categoria,
         tags: Array.isArray(tags) ? tags : [],
-        especialidade_id: especialidade_id ? toBig(especialidade_id) : null,
+        especialidade_id: espId, // <<< SALVO NA COLUNA FK
         e_publico,
         foi_aprovado: true, // deixa visível imediatamente
         autor_id: toBig(req.user.id),
@@ -280,6 +296,7 @@ export const createPrompt = async (req, res) => {
         visualizacoes: true,
         criado_em: true,
         atualizado_em: true,
+        especialidade_id: true, // <<< RETORNAR O ID
         autor: { select: { id: true, nome: true, avatar: true, cargo: true } },
         especialidade: { select: { id: true, nome: true, cor: true, icone: true } },
         _count: { select: { curtidas: true, comentarios: true } },
@@ -305,7 +322,8 @@ export const createPrompt = async (req, res) => {
 
 // ==============================
 // PUT /api/prompts/:id
-// (mantém lógica, garantindo retorno do autor)
+// Atualiza prompt aceitando diferentes chaves para especialidade e
+// RETORNANDO especialidade_id
 // ==============================
 export const updatePrompt = async (req, res) => {
   try {
@@ -316,7 +334,6 @@ export const updatePrompt = async (req, res) => {
       conteudo,
       categoria,
       tags,
-      especialidade_id,
       e_publico,
     } = req.body;
 
@@ -333,6 +350,8 @@ export const updatePrompt = async (req, res) => {
       return res.status(403).json({ error: 'Acesso negado' });
     }
 
+    const espId = getEspecialidadeId(req.body); // <<< NORMALIZA O ID
+
     const updated = await prisma.prompts.update({
       where: { id: toBig(id) },
       data: {
@@ -341,7 +360,7 @@ export const updatePrompt = async (req, res) => {
         conteudo,
         categoria,
         tags: Array.isArray(tags) ? tags : [],
-        especialidade_id: especialidade_id ? toBig(especialidade_id) : null,
+        especialidade_id: espId, // <<< ATUALIZA A FK (pode ser null)
         e_publico,
         // se não for admin, ao editar você pode querer revalidar (ajuste se necessário)
         foi_aprovado: req.user.e_admin ? existing.foi_aprovado : false,
@@ -355,6 +374,7 @@ export const updatePrompt = async (req, res) => {
         visualizacoes: true,
         criado_em: true,
         atualizado_em: true,
+        especialidade_id: true, // <<< RETORNAR O ID
         autor: { select: { id: true, nome: true, avatar: true, cargo: true } },
         especialidade: { select: { id: true, nome: true, cor: true, icone: true } },
         _count: { select: { curtidas: true, comentarios: true } },
@@ -483,6 +503,7 @@ export const getFeaturedPrompts = async (req, res) => {
         visualizacoes: true,
         criado_em: true,
         atualizado_em: true,
+        especialidade_id: true, // <<< RETORNAR O ID
         autor: { select: { id: true, nome: true, avatar: true, cargo: true } },
         especialidade: { select: { id: true, nome: true, cor: true, icone: true } },
         _count: { select: { curtidas: true, comentarios: true } },
@@ -544,6 +565,7 @@ export const getRelatedPrompts = async (req, res) => {
         visualizacoes: true,
         criado_em: true,
         atualizado_em: true,
+        especialidade_id: true, // <<< RETORNAR O ID
         autor: { select: { id: true, nome: true, avatar: true, cargo: true } },
         _count: { select: { curtidas: true, comentarios: true } },
       },

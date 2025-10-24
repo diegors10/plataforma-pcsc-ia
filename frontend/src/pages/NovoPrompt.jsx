@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-// import useNavigate only once (already imported above)
 import {
   Save,
   ArrowLeft,
@@ -32,15 +31,17 @@ const NovoPrompt = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [errors, setErrors] = useState({});
 
-  // Categorias (especialidades) vindas da API
-  const [categories, setCategories] = useState([]); // sempre array de strings
+  // Agora mantemos { id, name } para cada especialidade
+  const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
 
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     content: '',
-    category: '',
+    // armazenamos tanto o id quanto o nome da especialidade
+    categoryId: '',   // <- será enviado como especialidade_id
+    categoryName: '', // <- opcional (string legível)
     tags: [],
     isPublic: true
   });
@@ -49,28 +50,38 @@ const NovoPrompt = () => {
 
   useEffect(() => {
     fetchCategories();
-    // Se o usuário não estiver autenticado, redireciona para o login
     if (!isAuthenticated) {
       toast.error('Você precisa estar logado para criar um prompt');
       navigate('/login', { state: { message: 'Você precisa estar logado para criar um prompt.' } });
     }
   }, [isAuthenticated, navigate]);
 
-  // Carrega especialidades de /api/specialties e normaliza para nomes (strings)
+  // Carrega especialidades de /api/specialties e normaliza em {id, name}
   const fetchCategories = async () => {
     try {
       setCategoriesLoading(true);
       const resp = await specialtiesAPI.getAll(); // GET /api/specialties
       const items = resp?.data?.specialties || resp?.data || [];
 
-      // Normaliza { name } a partir de várias possíveis chaves de backend
-      const names = items
-        .map((s) => s?.nome ?? s?.name ?? s?.titulo ?? '')
-        .filter((n) => !!n)
-        .map((n) => String(n));
+      const normalized = items
+        .map((s) => {
+          const id = s?.id ?? s?.especialidade_id ?? s?.specialty_id;
+          const name = s?.nome ?? s?.name ?? s?.titulo ?? '';
+          if (!id || !name) return null;
+          return { id: String(id), name: String(name) };
+        })
+        .filter(Boolean);
 
-      // remove duplicados + ordena
-      const unique = Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      // remove duplicados por id
+      const seen = new Set();
+      const unique = [];
+      for (const it of normalized) {
+        if (seen.has(it.id)) continue;
+        seen.add(it.id);
+        unique.push(it);
+      }
+      unique.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
       setCategories(unique);
     } catch (error) {
       console.error('Erro ao buscar especialidades:', error);
@@ -96,7 +107,8 @@ const NovoPrompt = () => {
     else if (formData.content.length < 50) newErrors.content = 'Conteúdo deve ter pelo menos 50 caracteres';
     else if (formData.content.length > 5000) newErrors.content = 'Conteúdo deve ter no máximo 5000 caracteres';
 
-    if (!formData.category) newErrors.category = 'Categoria é obrigatória';
+    // valida por ID
+    if (!formData.categoryId) newErrors.category = 'Categoria é obrigatória';
 
     if (formData.tags.length === 0) newErrors.tags = 'Adicione pelo menos uma tag';
     else if (formData.tags.length > 10) newErrors.tags = 'Máximo de 10 tags permitidas';
@@ -108,6 +120,17 @@ const NovoPrompt = () => {
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
+
+  const handleCategoryChange = (value) => {
+    // value é o ID da especialidade
+    const found = categories.find((c) => c.id === value);
+    setFormData((prev) => ({
+      ...prev,
+      categoryId: value,
+      categoryName: found?.name || ''
+    }));
+    if (errors.category) setErrors((prev) => ({ ...prev, category: undefined }));
   };
 
   const handleAddTag = () => {
@@ -143,18 +166,19 @@ const NovoPrompt = () => {
 
     try {
       setLoading(true);
-      // payload compatível com o backend
+      // payload compatível com o backend (usa especialidade_id)
       const payload = {
         titulo: formData.title.trim(),
         descricao: formData.description.trim(),
         conteudo: formData.content.trim(),
-        categoria: formData.category, // string (nome da especialidade)
+        categoria: formData.categoryName || '', // opcional (string legível)
+        especialidade_id: formData.categoryId ? Number(formData.categoryId) : null, // <- AQUI
         tags: formData.tags,
         e_publico: formData.isPublic
       };
+
       await promptsAPI.create(payload);
 
-      
       toast.success('Prompt criado com sucesso!', {
         description: 'Seu prompt foi publicado e está disponível para a comunidade.',
       });
@@ -272,17 +296,17 @@ const NovoPrompt = () => {
                   <div className="space-y-2">
                     <Label htmlFor="category">Categoria *</Label>
                     <Select
-                      value={formData.category}
-                      onValueChange={(value) => handleInputChange('category', value)}
+                      value={formData.categoryId}
+                      onValueChange={handleCategoryChange}
                       disabled={categoriesLoading}
                     >
                       <SelectTrigger className={errors.category ? 'border-red-500' : ''}>
                         <SelectValue placeholder={categoriesLoading ? 'Carregando...' : 'Selecione uma categoria'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories.map((name) => (
-                          <SelectItem key={name} value={name}>
-                            {name}
+                        {categories.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -363,7 +387,7 @@ const NovoPrompt = () => {
                     <Button type="submit" disabled={loading}>
                       {loading ? (
                         <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin text-accent" />
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin text-accent" />
                           Salvando...
                         </>
                       ) : (
@@ -416,7 +440,7 @@ const NovoPrompt = () => {
                 <CardContent>
                   <div className="space-y-4">
                     {formData.title && <h3 className="font-semibold text-lg">{formData.title}</h3>}
-                    {formData.category && <Badge variant="secondary">{formData.category}</Badge>}
+                    {formData.categoryName && <Badge variant="secondary">{formData.categoryName}</Badge>}
                     {formData.description && <p className="text-muted-foreground text-sm">{formData.description}</p>}
                     {formData.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1">
@@ -462,7 +486,7 @@ const NovoPrompt = () => {
                   Descrição
                 </div>
                 <div className="flex items-center">
-                  {formData.category && !errors.category ? (
+                  {formData.categoryId && !errors.category ? (
                     <CheckCircle className="h-4 w-4 text-green-500 mr-2" />
                   ) : (
                     <AlertCircle className="h-4 w-4 text-muted-foreground mr-2" />
