@@ -3,7 +3,6 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { hasLikedPrompt, markLikedPrompt, getLocalLikeDelta } from '@/utils/likesStore';
 import { formatTimeAgo } from '@/utils/time';
 import {
-  Loader2,
   ArrowLeft,
   Eye,
   MessageCircle,
@@ -21,12 +20,13 @@ import { Badge } from '@/components/ui/badge';
 import { promptsAPI, authAPI } from '@/lib/api';
 import { toast } from 'sonner';
 import CommentsSection from '@/components/CommentsSection';
+import { useAuth } from '@/contexts/AuthContext';
+import LoginDialog from '@/components/LoginDialog';
 
 const toArray = (val) => (Array.isArray(val) ? val : (val ? [val] : []));
 const safeNumber = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const safeString = (v, d = '') => (v !== null && v !== undefined ? String(v) : d);
 
-// Helper para iniciais
 const getInitials = (name) => {
   if (!name) return '';
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
@@ -50,12 +50,23 @@ function normalizePrompt(raw) {
   );
 
   const visualizacoes = safeNumber(raw.visualizacoes ?? raw.views, 0);
-  const criadoEm =
-    raw.criado_em ?? raw.createdAt ?? raw.created_at ?? new Date().toISOString();
-  const atualizadoEm =
-    raw.atualizado_em ?? raw.updatedAt ?? raw.updated_at ?? criadoEm;
 
-  // mapeamento do autor vindo do backend
+  // <<< IMPORTANTE: aceitar camelCase enviado pelo backend (criadoEm/atualizadoEm)
+  const criadoEm =
+    raw.criadoEm ??
+    raw.criado_em ??
+    raw.createdAt ??
+    raw.created_at ??
+    null;
+
+  const atualizadoEm =
+    raw.atualizadoEm ??
+    raw.atualizado_em ??
+    raw.updatedAt ??
+    raw.updated_at ??
+    criadoEm ??
+    null;
+
   const autor = {
     id:
       raw.autor?.id ??
@@ -113,7 +124,7 @@ function normalizePrompt(raw) {
       avatar: c?.autor?.avatar ?? c?.autor_avatar ?? c?.author?.avatar ?? c?.usuario?.avatar ?? null
     },
     conteudo: safeString(c?.conteudo ?? c?.content ?? c?.texto, ''),
-    criadoEm: c?.criado_em ?? c?.created_at ?? c?.createdAt ?? new Date().toISOString()
+    criadoEm: c?.criado_em ?? c?.created_at ?? c?.createdAt ?? null
   }));
 
   return {
@@ -152,6 +163,8 @@ const VisualizarPrompt = () => {
   const promptId = Number(id);
   const navigate = useNavigate();
 
+  const { isAuthenticated, user: authUser } = useAuth();
+
   const [loading, setLoading] = useState(true);
   const [transitionLoading, setTransitionLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -164,6 +177,9 @@ const VisualizarPrompt = () => {
   const [sharing, setSharing] = useState(false);
 
   const [currentUser, setCurrentUser] = useState(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+
+  const [commentsCount, setCommentsCount] = useState(0);
 
   const fetchedRef = useRef(false);
 
@@ -192,6 +208,7 @@ const VisualizarPrompt = () => {
 
       const normalized = normalizePrompt(data);
       setPrompt(applyLocalLikeState(normalized));
+      setCommentsCount(safeNumber(normalized.commentsCount, 0));
 
       try {
         const relatedResp = await promptsAPI.getRelated(pid);
@@ -235,8 +252,19 @@ const VisualizarPrompt = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptId]);
 
+  const requireAuth = () => {
+    if (!isAuthenticated) {
+      setLoginOpen(true);
+      return false;
+    }
+    return true;
+  };
+
   const handleLike = async () => {
     if (!prompt || liking) return;
+
+    if (!requireAuth()) return;
+
     if (prompt.isLiked || hasLikedPrompt(prompt.id)) return;
 
     setLiking(true);
@@ -302,7 +330,7 @@ const VisualizarPrompt = () => {
     return (
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center mb-6">
-          <Button variant="ghost" onClick={() => navigate(-1)}>
+          <Button variant="ghost" onClick={() => navigate('/prompts')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar
           </Button>
@@ -316,7 +344,7 @@ const VisualizarPrompt = () => {
     return (
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center mb-6">
-          <Button variant="ghost" onClick={() => navigate(-1)}>
+          <Button variant="ghost" onClick={() => navigate('/prompts')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar
           </Button>
@@ -332,28 +360,26 @@ const VisualizarPrompt = () => {
   }
 
   const tags = prompt.tags || [];
-  const comentarios = prompt.comentarios || [];
   const canEdit =
-    currentUser?.id && prompt.autor?.id && String(currentUser.id) === String(prompt.autor.id);
+    (currentUser?.id || authUser?.id) &&
+    prompt.autor?.id &&
+    String(currentUser?.id || authUser?.id) === String(prompt.autor.id);
 
-  // Iniciais e autor
   const authorName = prompt.autor?.nome || 'Usuário';
   const authorInitials = getInitials(authorName);
 
-  // Mostrar "Atualizado" somente se houve alteração (updated > created)
-  const createdMs = Number(new Date(prompt.criadoEm));
-  const updatedMs = Number(new Date(prompt.atualizadoEm));
+  const createdMs = prompt.criadoEm ? Date.parse(prompt.criadoEm) : NaN;
+  const updatedMs = prompt.atualizadoEm ? Date.parse(prompt.atualizadoEm) : NaN;
   const hasRealUpdate =
-    Number.isFinite(createdMs) &&
     Number.isFinite(updatedMs) &&
-    updatedMs > createdMs;
+    (!Number.isFinite(createdMs) || updatedMs > createdMs);
 
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Barra superior */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={() => navigate(-1)}>
+          <Button variant="ghost" onClick={() => navigate('/prompts')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar
           </Button>
@@ -363,11 +389,11 @@ const VisualizarPrompt = () => {
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="flex items-center">
             <Eye className="h-4 w-4 mr-1" />
-            {prompt.visualizacoes}
+            {safeNumber(prompt.visualizacoes, 0)}
           </Badge>
           <Badge variant="outline" className="flex items-center">
             <MessageCircle className="h-4 w-4 mr-1" />
-            {prompt.commentsCount}
+            {commentsCount}
           </Badge>
         </div>
       </div>
@@ -406,10 +432,12 @@ const VisualizarPrompt = () => {
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center">
-              <Clock className="inline h-3 w-3 mr-1" />
-              Criado: {formatTimeAgo(prompt.criadoEm)}
-            </span>
+            {Number.isFinite(createdMs) && (
+              <span className="flex items-center">
+                <Clock className="inline h-3 w-3 mr-1" />
+                Criado: {formatTimeAgo(prompt.criadoEm)}
+              </span>
+            )}
             {hasRealUpdate && (
               <span className="flex items-center">
                 <Clock className="inline h-3 w-3 mr-1" />
@@ -464,7 +492,7 @@ const VisualizarPrompt = () => {
           </div>
 
           {/* Tags */}
-          {tags.length > 0 && (
+          {(tags.length > 0) && (
             <div className="pt-2">
               <div className="flex items-center mb-2 text-sm text-muted-foreground">
                 <Tag className="h-4 w-4 mr-2" /> Tags
@@ -499,7 +527,10 @@ const VisualizarPrompt = () => {
 
       {/* Comentários */}
       <div className="mb-6">
-        <CommentsSection promptId={prompt.id} />
+        <CommentsSection
+          promptId={prompt.id}
+          onCountChange={(count) => setCommentsCount(safeNumber(count, 0))}
+        />
       </div>
 
       {/* Relacionados */}
@@ -559,6 +590,8 @@ const VisualizarPrompt = () => {
           `}</style>
         </div>
       )}
+
+      <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} />
     </div>
   );
 };

@@ -275,6 +275,12 @@ export const createPrompt = async (req, res) => {
 
     const espId = getEspecialidadeId(req.body); // <<< NORMALIZA O ID
 
+    // Valida existência da especialidade quando fornecida
+    if (espId !== null) {
+      const espec = await prisma.especialidades.findUnique({ where: { id: espId } });
+      if (!espec) return res.status(400).json({ error: 'Especialidade inexistente' });
+    }
+
     const created = await prisma.prompts.create({
       data: {
         titulo,
@@ -282,7 +288,7 @@ export const createPrompt = async (req, res) => {
         conteudo,
         categoria,
         tags: Array.isArray(tags) ? tags : [],
-        especialidade_id: espId, // <<< SALVO NA COLUNA FK
+        especialidade_id: espId, // <<< SALVO NA COLUNA FK (pode ser null)
         e_publico,
         foi_aprovado: true, // deixa visível imediatamente
         autor_id: toBig(req.user.id),
@@ -308,7 +314,7 @@ export const createPrompt = async (req, res) => {
         message: 'Prompt criado com sucesso',
         prompt: {
           ...created,
-          likes: created._count?.curtidas ?? 0,
+          likes: created._count?.curtidas ?? 0,     // inicia 0
           comments: created._count?.comentarios ?? 0,
           isLiked: false,
         },
@@ -346,11 +352,18 @@ export const updatePrompt = async (req, res) => {
       return res.status(404).json({ error: 'Prompt não encontrado' });
     }
 
-    if (existing.autor_id !== toBig(req.user.id) && !req.user.e_admin) {
-      return res.status(403).json({ error: 'Acesso negado' });
+    // Permissão estrita: apenas criador
+    if (existing.autor_id !== toBig(req.user.id)) {
+      return res.status(403).json({ error: 'Apenas o criador pode editar' });
     }
 
     const espId = getEspecialidadeId(req.body); // <<< NORMALIZA O ID
+
+    // Valida existência da especialidade quando fornecida (inclusive null é permitido para "limpar")
+    if (espId !== null) {
+      const espec = await prisma.especialidades.findUnique({ where: { id: espId } });
+      if (!espec) return res.status(400).json({ error: 'Especialidade inexistente' });
+    }
 
     const updated = await prisma.prompts.update({
       where: { id: toBig(id) },
@@ -360,10 +373,10 @@ export const updatePrompt = async (req, res) => {
         conteudo,
         categoria,
         tags: Array.isArray(tags) ? tags : [],
-        especialidade_id: espId, // <<< ATUALIZA A FK (pode ser null)
+        especialidade_id: espId, // <<< ATUALIZA A FK (pode ser null para remover)
         e_publico,
-        // se não for admin, ao editar você pode querer revalidar (ajuste se necessário)
-        foi_aprovado: req.user.e_admin ? existing.foi_aprovado : false,
+        // sem exceção para admin: critério do requisito é apenas o criador
+        foi_aprovado: existing.foi_aprovado,
       },
       select: {
         id: true,
@@ -413,8 +426,9 @@ export const deletePrompt = async (req, res) => {
       return res.status(404).json({ error: 'Prompt não encontrado' });
     }
 
-    if (existing.autor_id !== toBig(req.user.id) && !req.user.e_admin) {
-      return res.status(403).json({ error: 'Acesso negado' });
+    // Permissão estrita: apenas criador
+    if (existing.autor_id !== toBig(req.user.id)) {
+      return res.status(403).json({ error: 'Apenas o criador pode excluir' });
     }
 
     await prisma.prompts.delete({ where: { id: toBig(id) } });

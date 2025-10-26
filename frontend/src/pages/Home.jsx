@@ -5,7 +5,6 @@ import {
   Brain, 
   Shield, 
   Users, 
-  TrendingUp,
   Lightbulb,
   Clock,
   Eye,
@@ -17,13 +16,14 @@ import {
   User
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import backgroundImage from '@/assets/ia_policial_background.png';
 import { promptsAPI, statsAPI } from '@/lib/api';
 import { formatTimeAgo } from '@/utils/time';
 import { useAuth } from '@/contexts/AuthContext';
 import CategoriesCarousel from '@/components/CategoriesCarousel';
+import { getLocalLikeDelta } from '@/utils/likesStore';
 
 const Home = () => {
   const [featuredPrompts, setFeaturedPrompts] = useState([]);
@@ -33,10 +33,9 @@ const Home = () => {
   const [loading, setLoading] = useState(true);
 
   const { isAuthenticated } = useAuth();
-  const ran = useRef(false); // evita chamadas duplicadas (Strict Mode)
+  const ran = useRef(false);
   const navigate = useNavigate();
 
-  // Navegar para /prompts com o filtro de categoria aplicado
   const handleCategoryClick = (category) => {
     const name =
       (typeof category === 'string' && category) ||
@@ -49,11 +48,11 @@ const Home = () => {
       typeof category === 'object'
         ? Number(
             category?.totalPrompts ??
-              category?.promptsCount ??
-              category?._count?.prompts ??
-              category?.total_prompts ??
-              category?.count ??
-              0
+            category?.promptsCount ??
+            category?._count?.prompts ??
+            category?.total_prompts ??
+            category?.count ??
+            0
           )
         : undefined;
 
@@ -65,7 +64,6 @@ const Home = () => {
     navigate(`/prompts?${qs.toString()}`);
   };
 
-  // Monta URL de prompts com filtros (categoria e/ou busca) a partir de um payload de prompt
   const buildPromptsURLWithFilters = (payload) => {
     const qs = new URLSearchParams();
     const category =
@@ -85,20 +83,16 @@ const Home = () => {
 
     if (category) qs.set('category', String(category));
     if (title) qs.set('search', String(title));
-
-    // fallback: se não houve nenhum filtro identificável, retorna a listagem simples
     return qs.toString() ? `/prompts?${qs.toString()}` : '/prompts';
   };
 
-  // Resolve a URL de navegação para cada atividade recente
   const resolveActivityLink = (act) => {
     const pid = act?.promptId ?? act?.prompt_id ?? act?.prompt?.id;
-    const did = act?.discussionId ?? act?.discussao_id ?? act?.discussion?.id ?? act?.discussao?.id;
+    const did = act?.discussionId ?? act?.discussao_id ?? act?.discussion?.id ?? act?.discussoes?.id;
     const postId = act?.postId ?? act?.post_id ?? act?.post?.id;
 
     switch (act?.type) {
       case 'prompt':
-        // Para criação de prompt, ir para a página de prompts já com filtros do prompt clicado
         return buildPromptsURLWithFilters(act);
       case 'comment':
         if (pid) return `/prompts/${pid}#comments`;
@@ -111,6 +105,8 @@ const Home = () => {
         if (did && postId) return `/discussoes/${did}#post-${postId}`;
         if (did) return `/discussoes/${did}`;
         return '/discussoes';
+      case 'user':
+        return '/prompts';
       default:
         if (pid) return `/prompts/${pid}`;
         if (did) return `/discussoes/${did}`;
@@ -147,7 +143,7 @@ const Home = () => {
             description: p.descricao ?? p.description ?? '',
             author: { name: p.autor?.nome ?? p.author?.name ?? 'Usuário' },
             views: Number(p.visualizacoes ?? p.views ?? 0),
-            likes: Number(p._count?.curtidas ?? p.likes ?? 0),
+            likes: Number(p._count?.curtidas ?? p.likes ?? 0) + getLocalLikeDelta(p.id),
             comments: Number(p._count?.comentarios ?? p.comments ?? 0),
             category: p.categoria ?? p.category ?? '—',
           }));
@@ -163,7 +159,7 @@ const Home = () => {
               description: p.descricao ?? p.description ?? '',
               author: { name: p.autor?.nome ?? p.author?.name ?? 'Usuário' },
               views: Number(p.visualizacoes ?? p.views ?? 0),
-              likes: Number(p._count?.curtidas ?? p.likes ?? 0),
+              likes: Number(p._count?.curtidas ?? p.likes ?? 0) + getLocalLikeDelta(p.id),
               comments: Number(p._count?.comentarios ?? p.comments ?? 0),
               category: p.categoria ?? p.category ?? '—',
             }));
@@ -174,44 +170,65 @@ const Home = () => {
           setFeaturedPrompts([]);
         }
 
-        // Atividades recentes
+        // Atividades recentes (agora respeitando 'action' = 'created' | 'updated')
         const activitiesRaw = Array.isArray(dashboardData.recentActivities)
           ? dashboardData.recentActivities
           : [];
+
         const adaptedActivities = activitiesRaw
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
           .slice(0, 4)
           .map((act) => {
             const userName = act.user?.nome ?? act.user?.name ?? 'Usuário';
-            let action;
+            const isUpdated = (act.action === 'updated');
+
+            let actionText;
             let item;
-            if (act.type === 'prompt') {
-              action = 'criou o prompt';
-              item = act.title ?? 'Prompt';
-            } else if (act.type === 'comment') {
-              action = 'comentou';
-              item = act.content ? act.content.slice(0, 30) + '…' : 'comentário';
-            } else if (act.type === 'discussion') {
-              action = 'abriu uma discussão';
-              item = act.title ?? 'Discussão';
-            } else if (act.type === 'post') {
-              action = 'respondeu na discussão';
-              item = act.title ?? act.content?.slice(0, 30) + '…' ?? 'Post';
-            } else {
-              action = 'realizou uma atividade em';
-              item = act.title ?? act.content ?? 'item';
+
+            switch (act.type) {
+              case 'prompt':
+                actionText = isUpdated ? 'atualizou o prompt' : 'criou o prompt';
+                item = act.title ?? 'Prompt';
+                break;
+
+              case 'comment':
+                // Quando backend passar action:'updated', mostramos como atualizado;
+                // se não vier, mantém "comentou".
+                actionText = isUpdated ? 'atualizou um comentário' : 'comentou';
+                item = act.content ? `${act.content.slice(0, 30)}…` : 'comentário';
+                break;
+
+              case 'discussion':
+                actionText = isUpdated ? 'atualizou a discussão' : 'abriu uma discussão';
+                item = act.title ?? 'Discussão';
+                break;
+
+              case 'post':
+                actionText = isUpdated ? 'atualizou uma resposta' : 'respondeu na discussão';
+                item = act.title ?? (act.content ? `${act.content.slice(0, 30)}…` : 'Post');
+                break;
+
+              case 'user':
+                actionText = 'agora também faz parte da comunidade';
+                item = '';
+                break;
+
+              default:
+                actionText = 'realizou uma atividade em';
+                item = act.title ?? act.content ?? 'item';
             }
+
             return {
               user: userName,
-              action,
+              action: actionText,
               item,
               time: new Date(act.createdAt),
               timeLabel: formatTimeAgo(act.createdAt),
               type: act.type,
-              // preserva o payload para resolver o link depois
               payload: act
             };
           });
+
         setRecentActivities(adaptedActivities);
       } catch (err) {
         console.error('Erro ao carregar dados da página inicial', err);
@@ -267,7 +284,6 @@ const Home = () => {
             </div>
           </div>
         </div>
-        {/* Overlay decorativo */}
         <div className="absolute inset-0 bg-gradient-to-t from-primary/20 to-transparent pointer-events-none"></div>
       </section>
 
@@ -307,7 +323,7 @@ const Home = () => {
               <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
                 <CardContent className="p-6">
                   <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
-                    <Shield className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
+                    <Shield className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duração-300" />
                   </div>
                   <h3 className="font-semibold mb-2 text-foreground">Ética</h3>
                   <p className="text-sm text-muted-foreground">Uso responsável da tecnologia</p>
@@ -315,17 +331,17 @@ const Home = () => {
               </Card>
               <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
                 <CardContent className="p-6">
-                  <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
-                    <Users className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
+                  <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-yellow-500/20 transition-colors duração-300">
+                    <Users className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duração-300" />
                   </div>
                   <h3 className="font-semibold mb-2 text-foreground">Colaboração</h3>
                   <p className="text-sm text-muted-foreground">Compartilhamento de conhecimento</p>
                 </CardContent>
               </Card>
-              <Card className="group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+              <Card className="group hover:shadow-lg transition-all duração-300 hover:-translate-y-1">
                 <CardContent className="p-6">
-                  <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-yellow-500/20 transition-colors duration-300">
-                    <Lightbulb className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duration-300" />
+                  <div className="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-3 group-hover:bg-yellow-500/20 transition-colors duração-300">
+                    <Lightbulb className="h-6 w-6 text-yellow-500 group-hover:scale-110 transition-transform duração-300" />
                   </div>
                   <h3 className="font-semibold mb-2 text-foreground">Inovação</h3>
                   <p className="text-sm text-muted-foreground">Métodos modernos de investigação</p>
@@ -438,7 +454,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* Atividades Recentes (com links e seta) */}
+      {/* Atividades Recentes */}
       <section className="py-16">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
@@ -480,12 +496,9 @@ const Home = () => {
                     <Card key={index} className="group hover:shadow-md transition-all duration-300 hover:border-accent/20">
                       <CardContent className="p-4">
                         <div className="flex items-start space-x-4">
-                          {/* Clique no texto leva para a página referente */}
                           <Link to={url} className="flex items-start space-x-4 flex-1 no-underline">
                             {content}
                           </Link>
-
-                          {/* Ícone seta -> alinhado à direita, mesmo link */}
                           <Link
                             to={url}
                             aria-label="Abrir item"

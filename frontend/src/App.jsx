@@ -14,6 +14,7 @@ import VisualizarPrompt from './pages/VisualizarPrompt';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Profile from './pages/Profile';
+import EditarPrompt from './pages/EditarPrompt';
 import { AuthProvider } from './contexts/AuthContext';
 
 import './App.css';
@@ -33,7 +34,7 @@ function App() {
               <Route path="/sobre" element={<Sobre />} />
               <Route path="/boas-praticas" element={<BoasPraticas />} />
               <Route path="/prompts/:id" element={<VisualizarPrompt />} />
-
+              <Route path="/prompts/:id/editar" element={<EditarPrompt />} />
               {/* Autenticação */}
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
@@ -42,7 +43,7 @@ function App() {
               <Route path="/profile" element={<Profile />} />
             </Routes>
           </Layout>
-          <Toaster position="top-right" />
+          <Toaster position="top-right" duration='8000' />
         </AuthProvider>
       </Router>
     </ThemeProvider>

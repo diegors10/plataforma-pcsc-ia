@@ -312,9 +312,9 @@ const PromptsSimple = () => {
               const title = prompt?.title ?? prompt?.titulo ?? 'Sem título';
               const description = prompt?.description ?? prompt?.descricao ?? '';
               const tags = Array.isArray(prompt?.tags) ? prompt.tags : [];
-              const likes = Number(
-                (prompt?.likes ?? 0) + getLocalLikeDelta(prompt?.id)
-              );
+              // O contador de curtidas já contém o delta local aplicado no carregamento.
+              // Aqui apenas convertemos o valor para número para exibição, sem somar novamente.
+              const likes = Number(prompt?.likes ?? 0);
               const isLiked = !!(prompt?.isLiked || hasLikedPrompt(prompt?.id));
               const comments = Number(prompt?.comments ?? prompt?._count?.comentarios ?? 0);
               const createdAt = prompt?.createdAt ?? prompt?.criado_em ?? new Date().toISOString();

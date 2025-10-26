@@ -150,7 +150,7 @@ const NovoPrompt = () => {
     setFormData((prev) => ({ ...prev, tags: prev.tags.filter((x) => x !== t) }));
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleAddTag();
@@ -328,7 +328,7 @@ const NovoPrompt = () => {
                         placeholder="Digite uma tag e pressione Enter"
                         value={tagInput}
                         onChange={(e) => setTagInput(e.target.value)}
-                        onKeyPress={handleKeyPress}
+                        onKeyDown={handleKeyDown}
                         maxLength={20}
                       />
                       <Button type="button" onClick={handleAddTag} variant="outline">
@@ -341,7 +341,14 @@ const NovoPrompt = () => {
                         {formData.tags.map((tag) => (
                           <Badge key={tag} variant="secondary" className="cursor-pointer">
                             #{tag}
-                            <X className="h-3 w-3 ml-1 hover:text-red-500" onClick={() => handleRemoveTag(tag)} />
+                            <button
+                              type="button"
+                              aria-label={`remover ${tag}`}
+                              className="ml-1 leading-none"
+                              onClick={() => handleRemoveTag(tag)}
+                            >
+                              <X className="h-3 w-3 hover:text-red-500" />
+                            </button>
                           </Badge>
                         ))}
                       </div>
