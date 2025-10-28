@@ -18,7 +18,7 @@ const getToken = () => safeLocalStorage.getItem('token');
 
 // -------- criação do axios --------
 const api = axios.create({
-  baseURL: (import.meta?.env?.VITE_API_BASE_URL || 'http://localhost:3001/api').replace(/\/$/, ''),
+  baseURL: (import.meta?.env?.VITE_API_BASE_URL || 'http://10.121.23.150:3001/api').replace(/\/$/, ''),
   timeout: 20000,
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
