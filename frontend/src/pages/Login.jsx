@@ -1,162 +1,120 @@
-import React, { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Mail, Lock, Loader2, UserPlus, X, AlertCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { useAuth } from '@/contexts/AuthContext';
-import { toast } from 'sonner';
+import React from 'react'
+import { useNavigate } from 'react-router-dom'
+import { GoogleLogin } from '@react-oauth/google'
+import { useAuth } from '@/contexts/AuthContext'
+import banner from '@/assets/banner-ia-pcsc.jpeg'
+
+// shadcn/ui
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+
+// ícones
+import { LogIn, Info } from 'lucide-react'
 
 const Login = () => {
-  const { login } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
+  const { loginWithGoogle } = useAuth()
+  const navigate = useNavigate()
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState(null);
-
-  // Se quiser exibir mensagem de origem, descomente:
-  // const state = location.state || {};
-  // const fromMessage = state?.message;
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (submitting) return;
-
-    setSubmitting(true);
-    setFormError(null);
-
+  const handleGoogleSuccess = async (cred) => {
     try {
-      // Use as opções suportadas pelo AuthContext:
-      // - suppressRedirect: false -> deixa o AuthContext redirecionar em sucesso
-      // - handleErrorInCaller: true -> erros são lançados para este componente tratar
-      await login(
-        { email, senha: password },
-        { suppressRedirect: false, handleErrorInCaller: true }
-      );
-      // Nada aqui: o AuthContext já faz navigate('/', { replace: true }) em sucesso
+      await loginWithGoogle(cred?.credential, { suppressRedirect: false })
     } catch (err) {
-      const msg =
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        err?.message ||
-        'Credenciais inválidas. Verifique seus dados e tente novamente.';
-
-      toast.error(msg, { duration: 12000 });
-      setFormError(msg);
-    } finally {
-      setSubmitting(false);
+      console.error('Falha no login com Google:', err)
     }
-  };
+  }
+
+  const handleGoogleError = () => {
+    console.error('Falha ao iniciar login com Google')
+  }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
-      <div className="max-w-md w-full space-y-8">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
+    <div
+      className="
+        min-h-screen w-full flex items-center justify-center p-4
+        bg-white text-zinc-900
+        dark:bg-gradient-to-br dark:from-zinc-950 dark:via-zinc-900 dark:to-black dark:text-white
+      "
+    >
+      {/* Card único centralizado */}
+      <div className="w-full max-w-3xl">
+        <Card
+          className="
+            overflow-hidden rounded-2xl shadow-2xl h-full min-h-[560px] flex flex-col
+            bg-black text-white border border-zinc-800
+          "
+        >
+          {/* Banner 16:9 mostrando a arte inteira sem cortes/linhas */}
+          <div className="relative w-full aspect-[16/9] bg-black">
+            <img
+              src={banner}
+              alt="Polícia Civil de Santa Catarina - Inteligência Artificial"
+              className="absolute inset-0 block h-full w-full object-contain select-none pointer-events-none m-0 p-3 border-0"
+              draggable={false}
+            />
+          </div>
+
+          <CardContent className="p-6 flex flex-col">
+            <div className="flex items-center gap-3">
               <div>
-                <CardTitle className="text-2xl">Acessar Conta</CardTitle>
-                <CardDescription>Informe suas credenciais para continuar.</CardDescription>
+                <h1 className="text-xl font-semibold tracking-tight">
+                  Plataforma PCSC-IA
+                </h1>
+                <p className="text-sm text-zinc-300">
+                  Acesso exclusivo para contas <span className="font-medium text-white">@pc.sc.gov.br</span>
+                </p>
               </div>
+            </div>
+
+            <div className="mt-4 text-sm text-zinc-300 leading-relaxed">
+              <p className="flex items-start gap-2">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-zinc-200" />
+                Para sua segurança, o acesso é realizado apenas via autenticação Google do domínio institucional.
+              </p>
+            </div>
+
+            {/* Ação principal alinhada à base do card */}
+            <div className="mt-6 flex flex-col sm:flex-row items-center gap-3 mt-auto">
+              <div className="rounded-lg bg-white p-1">
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={handleGoogleError}
+                  useOneTap
+                  auto_select
+                />
+              </div>
+
+              <div className="text-xs text-zinc-300">
+                Ao entrar, você concorda com os termos internos e a política de privacidade.
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              <p className="text-[11px] text-zinc-400">
+                Não há cadastro manual. Caso não possua conta institucional, contate os administradores através do e-mail{' '}
+                <a
+                  href="mailto:getin-ia@pc.sc.gov.br"
+                  className="text-zinc-200 hover:underline"
+                >
+                  getin-ia@pc.sc.gov.br
+                </a>.
+              </p>
+            </div>
+
+            <div className="mt-auto pt-4">
               <Button
-                variant="ghost"
-                size="sm"
+                variant="secondary"
+                className="w-full bg-zinc-800 hover:bg-zinc-700 text-white"
                 onClick={() => navigate(-1)}
-                className="h-8 w-8 p-0"
-                aria-label="Fechar"
               >
-                <X className="h-4 w-4" />
+                <LogIn className="mr-2 h-4 w-4" />
+                Voltar
               </Button>
             </div>
-          </CardHeader>
-
-          <CardContent>
-            {/* Se quiser mostrar mensagem de origem:
-            {fromMessage && (
-              <div className="mb-4 text-sm text-red-600 font-medium">
-                {fromMessage}
-              </div>
-            )} */}
-
-            {formError && (
-              <div
-                className="mb-4 flex items-start rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-                role="alert"
-                aria-live="assertive"
-              >
-                <AlertCircle className="mr-2 h-4 w-4 mt-0.5" />
-                <span>{formError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-              <div className="space-y-2">
-                <label htmlFor="email" className="block text-sm font-medium text-foreground">
-                  Email
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="seu.email@exemplo.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="pl-9"
-                    autoComplete="username"
-                    aria-invalid={!!formError}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label htmlFor="password" className="block text-sm font-medium text-foreground">
-                  Senha
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Sua senha"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="pl-9"
-                    autoComplete="current-password"
-                    aria-invalid={!!formError}
-                  />
-                </div>
-              </div>
-
-              <Button type="submit" disabled={submitting} className="w-full">
-                {submitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin text-accent" />
-                    Entrando...
-                  </>
-                ) : (
-                  'Entrar'
-                )}
-              </Button>
-            </form>
-
-            <p className="mt-6 text-sm text-muted-foreground text-center">
-              Não tem uma conta?{' '}
-              <Link to="/register" className="text-accent underline-offset-4 hover:underline inline-flex items-center">
-                <UserPlus className="h-3.5 w-3.5 mr-1" />
-                Cadastre-se
-              </Link>
-            </p>
           </CardContent>
         </Card>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default Login;
+export default Login

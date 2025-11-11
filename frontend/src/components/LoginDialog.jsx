@@ -37,7 +37,7 @@ export default function LoginDialog({ open, onOpenChange }) {
         <DialogHeader>
           <DialogTitle>Participe da comunidade PCSC-IA</DialogTitle>
           <DialogDescription>
-            Crie sua conta ou entre para curtir, comentar, publicar prompts e participar dos fóruns.
+            Entre com sua conta para curtir, comentar, publicar prompts e participar dos fóruns.
           </DialogDescription>
         </DialogHeader>
 
@@ -45,9 +45,6 @@ export default function LoginDialog({ open, onOpenChange }) {
         <div className="flex flex-col gap-2">
           <Button autoFocus onClick={() => go('/login')}>
             Entrar
-          </Button>
-          <Button variant="outline" onClick={() => go('/register')}>
-            Criar conta
           </Button>
         </div>
       </DialogContent>

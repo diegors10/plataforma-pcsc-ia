@@ -2,7 +2,7 @@ import express from 'express';
 import { body } from 'express-validator';
 import { authenticateToken } from '../middleware/auth.js';
 import { handleValidationErrors, sanitizeInput } from '../middleware/validation.js';
-import { register, login, getMe, logout } from '../controllers/authController.js';
+import { register, login, getMe, logout, googleLogin } from '../controllers/authController.js';
 
 const router = express.Router();
 
@@ -84,6 +84,11 @@ router.get('/me',
 router.post('/logout',
   authenticateToken,
   logout
+);
+
+// Login via Google OAuth
+router.post('/google',
+  googleLogin
 );
 
 export default router;

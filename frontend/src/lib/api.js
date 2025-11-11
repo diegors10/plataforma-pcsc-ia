@@ -1,4 +1,3 @@
-// frontend/src/lib/api.js
 import axios from 'axios';
 
 // -------- helpers de ambiente/armazenamento --------
@@ -93,7 +92,8 @@ api.interceptors.response.use(
 
     if (response?.status === 401) {
       if (config?.meta?.noRedirectOn401) return Promise.reject(error);
-      localStorage.removeItem('token');
+      // ✅ usar storage seguro (evita ReferenceError em ambientes sem window)
+      safeLocalStorage.removeItem('token');
       if (typeof window !== 'undefined') window.location.href = '/login';
       return Promise.reject(error);
     }
@@ -286,11 +286,23 @@ export const usersAPI = {
 export const authAPI = {
   login: (credentials, axiosConfig = {}) => api.post('/auth/login', credentials, axiosConfig),
   register: (userData, axiosConfig = {}) => api.post('/auth/register', userData, axiosConfig),
-  logout: (axiosConfig = {}) => api.post('/auth/logout', null, axiosConfig),
+
+  // ✅ CORRIGIDO: não enviar null (causava 400 no body-parser). Envia {}.
+  logout: (axiosConfig = {}) => api.post('/auth/logout', {}, axiosConfig),
+
   getMe: (axiosConfig = {}) => api.get('/auth/me', axiosConfig),
 
   // tenta obter o usuário sem forçar login (não redireciona em 401)
   getMeOptional: () => api.get('/auth/me', { meta: { noRedirectOn401: true } }),
+
+  /**
+   * Login via Google OAuth. Recebe um idToken emitido pelo Google
+   * e retorna um JWT da API juntamente com os dados do usuário.
+   * @param {string} idToken
+   * @param {object} axiosConfig
+   */
+  googleLogin: (idToken, axiosConfig = {}) =>
+    api.post('/auth/google', { idToken }, axiosConfig),
 };
 
 export const statsAPI = {

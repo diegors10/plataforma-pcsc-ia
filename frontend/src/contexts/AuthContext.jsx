@@ -1,4 +1,3 @@
-// AuthContext.jsx | AuthContext.tsx
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -11,6 +10,7 @@ const AuthContext = createContext({
   login: async (_credentials, _options) => {},
   register: async (_userData, _options) => {},
   logout: () => {},
+  loginWithGoogle: async (_idToken, _options) => {},
 });
 
 export const AuthProvider = ({ children }) => {
@@ -78,6 +78,45 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Login via Google. Recebe o idToken emitido pelo Google e chama a API
+   * backend para obter token e dados do usuário. Permite suprimir redirect e
+   * tratar erro no componente chamador, assim como a função login existente.
+   */
+  const loginWithGoogle = async (idToken, options = {}) => {
+    const {
+      suppressRedirect = true,
+      handleErrorInCaller = true,
+    } = options;
+    try {
+      const response = await authAPI.googleLogin(idToken, { meta: { noRedirectOn401: true } });
+      const token = response?.data?.token;
+      const loggedUser = response?.data?.user;
+      if (!token) throw new Error('Token não retornado');
+      localStorage.setItem('token', token);
+      setUser(loggedUser);
+      if (!suppressRedirect) {
+        toast.success('Login realizado com sucesso!');
+        navigate('/', { replace: true });
+      }
+      return { success: true, user: loggedUser };
+    } catch (error) {
+      const msg =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Erro ao realizar login';
+      if (handleErrorInCaller) {
+        const err = new Error(msg);
+        err.response = error?.response;
+        throw err;
+      } else {
+        toast.error(msg, { duration: 12000 });
+        return { success: false, error: msg };
+      }
+    }
+  };
+
   const register = async (userData, options = {}) => {
     const { suppressRedirect = false } = options;
     try {
@@ -109,6 +148,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
+      // ✅ agora o authAPI.logout envia {} (não envia null)
       await authAPI.logout?.();
     } catch {}
     localStorage.removeItem('token');
@@ -126,6 +166,7 @@ export const AuthProvider = ({ children }) => {
         login,
         register,
         logout,
+        loginWithGoogle,
       }}
     >
       {children}
