@@ -243,17 +243,27 @@ export const getAllDiscussions = async (req, res) => {
     const discIds = rows.map((d) => d.id);
     let lastPostByDiscussion = new Map();
     if (discIds.length) {
+      // const lastPosts = await prisma.postagens.findMany({
+      //   where: { discussao_id: { in: discIds } },
+      //   orderBy: { criado_em: 'desc' },
+      //   select: {
+      //     id: true,
+      //     conteudo: true,
+      //     criado_em: true,
+      //     discussao_id: true,
+      //     autor_id: true
+      //   }
+      // });
+
       const lastPosts = await prisma.postagens.findMany({
         where: { discussao_id: { in: discIds } },
-        orderBy: { criado_em: 'desc' },
+        orderBy: [ { discussao_id: 'asc' }, { criado_em: 'desc' } ],
+        distinct: ['discussao_id'],
         select: {
-          id: true,
-          conteudo: true,
-          criado_em: true,
-          discussao_id: true,
-          autor_id: true
+          id: true, conteudo: true, criado_em: true, discussao_id: true, autor_id: true
         }
       });
+
       // mantém o primeiro (mais recente) para cada discussão
       for (const p of lastPosts) {
         const key = String(p.discussao_id);
