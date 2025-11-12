@@ -243,36 +243,34 @@ export const getAllDiscussions = async (req, res) => {
     const discIds = rows.map((d) => d.id);
     let lastPostByDiscussion = new Map();
     if (discIds.length) {
-      // const lastPosts = await prisma.postagens.findMany({
-      //   where: { discussao_id: { in: discIds } },
-      //   orderBy: { criado_em: 'desc' },
-      //   select: {
-      //     id: true,
-      //     conteudo: true,
-      //     criado_em: true,
-      //     discussao_id: true,
-      //     autor_id: true
-      //   }
-      // });
-
+      // Busca apenas o post mais recente de cada discussão utilizando distinct.
       const lastPosts = await prisma.postagens.findMany({
         where: { discussao_id: { in: discIds } },
-        orderBy: [ { discussao_id: 'asc' }, { criado_em: 'desc' } ],
+        // ordena por discussao_id e data de criação para que distinct funcione corretamente
+        orderBy: [
+          { discussao_id: 'asc' },
+          { criado_em: 'desc' },
+        ],
+        // garante que retornará um único registro por discussão
         distinct: ['discussao_id'],
         select: {
-          id: true, conteudo: true, criado_em: true, discussao_id: true, autor_id: true
+          id: true,
+          conteudo: true,
+          criado_em: true,
+          discussao_id: true,
+          autor_id: true
         }
       });
 
-      // mantém o primeiro (mais recente) para cada discussão
+      // Monta o map discId -> último post
+      lastPostByDiscussion = new Map();
       for (const p of lastPosts) {
-        const key = String(p.discussao_id);
-        if (!lastPostByDiscussion.has(key)) lastPostByDiscussion.set(key, p);
+        lastPostByDiscussion.set(String(p.discussao_id), p);
       }
 
       // resolve autores dos últimos posts
       const lpAuthorIds = Array.from(
-        new Set(Array.from(lastPostByDiscussion.values()).map((p) => String(p.autor_id)).filter(Boolean))
+        new Set(lastPosts.map((p) => String(p.autor_id)).filter(Boolean))
       ).map((s) => toBig(s)).filter((v) => v !== null);
 
       let lpAuthors = new Map();
