@@ -16,12 +16,36 @@ const safeLocalStorage = (() => {
 const getToken = () => safeLocalStorage.getItem('token');
 
 // -------- criação do axios --------
+// const api = axios.create({
+//   baseURL: (import.meta?.env?.VITE_API_BASE_URL || 'http://10.121.23.150:3001/api').replace(/\/$/, ''),
+//   timeout: 20000,
+//   withCredentials: true,
+//   headers: { 'Content-Type': 'application/json' },
+// });
+
+
+
+// Decide o endpoint da API:
+// - Se VITE_API_BASE_URL estiver setado, usa ele
+// - Se hostname terminar com iacop.com.br, usa o domínio HTTPS da API
+// - Senão, assume dev local
+const RESOLVED_API_BASE =
+  (import.meta?.env?.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '')) ||
+  (typeof window !== 'undefined' && window.location.hostname.endsWith('iacop.com.br')
+    ? 'https://plataforma-pcsc-api.iacop.com.br/api'
+    : 'http://localhost:3001/api');
+
 const api = axios.create({
-  baseURL: (import.meta?.env?.VITE_API_BASE_URL || 'http://10.121.23.150:3001/api').replace(/\/$/, ''),
+  baseURL: RESOLVED_API_BASE,
   timeout: 20000,
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
+
+
+
+
+
 
 // -------- in-flight dedupe (evita spam em curto intervalo) --------
 const DEDUPE_WINDOW_MS = 1500;
