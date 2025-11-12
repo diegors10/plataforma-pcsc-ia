@@ -15,25 +15,24 @@ const safeLocalStorage = (() => {
 
 const getToken = () => safeLocalStorage.getItem('token');
 
-// -------- criação do axios --------
-// const api = axios.create({
-//   baseURL: (import.meta?.env?.VITE_API_BASE_URL || 'http://10.121.23.150:3001/api').replace(/\/$/, ''),
-//   timeout: 20000,
-//   withCredentials: true,
-//   headers: { 'Content-Type': 'application/json' },
-// });
+// -------- criação do axios (SEM IP em produção) --------
+const isProd = import.meta.env.PROD === true;
+let RESOLVED_API_BASE = '';
 
+if (isProd) {
+  // Em produção, trava no domínio HTTPS da API
+  RESOLVED_API_BASE = 'https://plataforma-pcsc-api.iacop.com.br/api';
+} else {
+  // Em dev, usa env ou localhost
+  const envUrl = import.meta?.env?.VITE_API_BASE_URL;
+  RESOLVED_API_BASE = (envUrl && envUrl.replace(/\/$/, '')) || 'http://localhost:3001/api';
+}
 
-
-// Decide o endpoint da API:
-// - Se VITE_API_BASE_URL estiver setado, usa ele
-// - Se hostname terminar com iacop.com.br, usa o domínio HTTPS da API
-// - Senão, assume dev local
-const RESOLVED_API_BASE =
-  (import.meta?.env?.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '')) ||
-  (typeof window !== 'undefined' && window.location.hostname.endsWith('iacop.com.br')
-    ? 'https://plataforma-pcsc-api.iacop.com.br/api'
-    : 'http://localhost:3001/api');
+// Guarda-chuva extra: se a página está em HTTPS e o baseURL começa com http://, reescreve para HTTPS da API
+if (typeof window !== 'undefined' && window.location.protocol === 'https:' && RESOLVED_API_BASE.startsWith('http://')) {
+  console.warn('[api] Reescrevendo baseURL insegura para HTTPS do domínio');
+  RESOLVED_API_BASE = 'https://plataforma-pcsc-api.iacop.com.br/api';
+}
 
 const api = axios.create({
   baseURL: RESOLVED_API_BASE,
@@ -41,7 +40,6 @@ const api = axios.create({
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
-
 
 
 
