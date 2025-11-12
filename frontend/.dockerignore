@@ -1,6 +1,9 @@
+# Ignore unnecessary files and directories when building the front‑end image.
 node_modules
 npm-debug.log
 Dockerfile
 .dockerignore
-dist
 .env*
+dist
+coverage
+*.md
